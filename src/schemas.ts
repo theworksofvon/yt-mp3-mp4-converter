@@ -1,0 +1,150 @@
+import { z } from "zod";
+
+/**
+ * Zod schema for validating convert request payloads
+ *
+ * This schema provides comprehensive validation for the /api/convert endpoint:
+ * - URL validation with custom refinements
+ * - Format validation (only mp3 or mp4 allowed)
+ * - Length limits to prevent DoS
+ * - Type safety
+ */
+export const convertRequestSchema = z.object({
+  url: z.string({
+    required_error: "URL is required",
+    invalid_type_error: "URL must be a string",
+  })
+    .min(1, "URL cannot be empty")
+    .max(500, "URL is too long (maximum 500 characters)")
+    .trim()
+    .refine(
+      (val) => {
+        // Check for command injection patterns
+        const dangerousPatterns = [
+          /[;&|`$()]/,           // Shell metacharacters
+          /\n/,                   // Newline
+          /\r/,                   // Carriage return
+          /\t/,                   // Tab
+          /\x00/,                 // Null byte
+          /\.\./,                 // Directory traversal
+        ];
+        return !dangerousPatterns.some(pattern => pattern.test(val));
+      },
+      "URL contains invalid or potentially malicious characters"
+    )
+    .refine(
+      (val) => {
+        // Validate YouTube URL format
+        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]+/;
+        return youtubeRegex.test(val);
+      },
+      "Invalid YouTube URL format"
+    )
+    .refine(
+      (val) => {
+        // Extract and validate video ID is properly formatted
+        const match = val.match(/(?:[?&]v=|\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+        return match !== null;
+      },
+      "Could not extract valid YouTube video ID"
+    )
+    .transform((val) => {
+      // Sanitize the URL by trimming and ensuring valid protocol
+      const trimmed = val.trim();
+      // Add https:// if no protocol specified
+      if (!trimmed.match(/^https?:\/\//i)) {
+        return `https://${trimmed}`;
+      }
+      return trimmed;
+    }),
+
+  format: z.enum(["mp3", "mp4"], {
+    errorMap: () => ({ message: "Format must be either 'mp3' or 'mp4'" }),
+  }),
+
+  // Optional: quality preference (for future use)
+  quality: z.enum(["low", "medium", "high"], {
+    errorMap: () => ({ message: "Quality must be 'low', 'medium', or 'high'" }),
+  }).optional(),
+});
+
+/**
+ * Type inference from the convert request schema
+ */
+export type ConvertRequest = z.infer<typeof convertRequestSchema>;
+
+/**
+ * Schema for validating job ID parameters
+ */
+export const jobIdSchema = z.string({
+  required_error: "Job ID is required",
+  invalid_type_error: "Job ID must be a string",
+})
+  .min(1, "Job ID cannot be empty")
+  .max(100, "Job ID is too long")
+  .refine(
+    (val) => /^[a-zA-Z0-9-]+$/.test(val),
+    "Job ID contains invalid characters"
+  );
+
+/**
+ * Schema for validating URL query parameters
+ */
+export const urlQuerySchema = z.object({
+  url: z.string().min(1).max(500).optional(),
+  format: z.enum(["mp3", "mp4"]).optional(),
+});
+
+/**
+ * Sanitization utilities for user input
+ */
+export const Sanitizer = {
+  /**
+   * Sanitizes a string by removing control characters and limiting length
+   */
+  string(input: string, maxLength: number = 1000): string {
+    if (!input) return "";
+
+    return input
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // Remove control chars
+      .slice(0, maxLength);
+  },
+
+  /**
+   * Sanitizes a filename for safe filesystem use
+   */
+  filename(input: string): string {
+    if (!input) return "unnamed";
+
+    return input
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
+      .replace(/\.\./g, "")
+      .replace(/^\.+/, "")
+      .replace(/^\/+/, "")
+      .replace(/\s+/g, "_")
+      .slice(0, 200);
+  },
+
+  /**
+   * Sanitizes a URL by removing dangerous characters while preserving valid URL structure
+   */
+  url(input: string): string {
+    if (!input) return "";
+
+    return input
+      .trim()
+      .replace(/[\x00-\x1F\x7F]/g, "") // Remove control chars
+      .slice(0, 500);
+  },
+};
+
+/**
+ * Error response types for validation failures
+ */
+export const ValidationError = {
+  INVALID_URL: "INVALID_URL",
+  MALICIOUS_INPUT: "MALICIOUS_INPUT",
+  INVALID_FORMAT: "INVALID_FORMAT",
+  MISSING_REQUIRED_FIELD: "MISSING_REQUIRED_FIELD",
+  INVALID_JOB_ID: "INVALID_JOB_ID",
+} as const;

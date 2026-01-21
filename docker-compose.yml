@@ -1,0 +1,24 @@
+services:
+  yt-converter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yt-mp3-mp4-converter
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DOWNLOAD_DIR=/tmp/yt-converter-downloads
+      - NODE_ENV=production
+      # Optional: Max file size in MB
+      - MAX_FILE_SIZE_MB=500
+    volumes:
+      # Persist downloads to host (optional)
+      - ./downloads:/tmp/yt-converter-downloads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

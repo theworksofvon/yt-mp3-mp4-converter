@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube to MP3/MP4 Converter</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      width: 100%;
+      max-width: 500px;
+    }
+
+    h1 {
+      color: #1a1a2e;
+      text-align: center;
+      margin-bottom: 8px;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 32px;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    label {
+      display: block;
+      color: #333;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    input[type="url"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    input[type="url"]:focus {
+      outline: none;
+      border-color: #e94560;
+    }
+
+    .format-options {
+      display: flex;
+      gap: 16px;
+    }
+
+    .format-option {
+      flex: 1;
+    }
+
+    .format-option input[type="radio"] {
+      display: none;
+    }
+
+    .format-option label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .format-option input[type="radio"]:checked + label {
+      border-color: #e94560;
+      background: #e94560;
+      color: white;
+    }
+
+    .format-option label:hover {
+      border-color: #c73e54;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #e94560;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover:not(:disabled) {
+      background: #c73e54;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 24px;
+      padding: 16px;
+      border-radius: 8px;
+      display: none;
+    }
+
+    .status.processing {
+      display: block;
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .status.success {
+      display: block;
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .status.error {
+      display: block;
+      background: #ffebee;
+      color: #c62828;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #1976d2;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .download-link {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 10px 20px;
+      background: #2e7d32;
+      color: white;
+      text-decoration: none;
+      font-weight: 600;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+
+    .download-link:hover {
+      background: #1b5e20;
+      text-decoration: none;
+    }
+
+    .filename {
+      display: block;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #666;
+      word-break: break-all;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status.success {
+      display: block;
+      background: #e8f5e9;
+      color: #2e7d32;
+      text-align: center;
+    }
+
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+    }
+
+    .footer a {
+      color: #666;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>YouTube to MP3/MP4 Converter</h1>
+    <p class="subtitle">Download and convert YouTube videos to audio or video files</p>
+
+    <form id="converterForm">
+      <div class="form-group">
+        <label for="url">YouTube URL</label>
+        <input
+          type="url"
+          id="url"
+          name="url"
+          placeholder="https://www.youtube.com/watch?v=..."
+          required
+        >
+      </div>
+
+      <div class="form-group">
+        <label>Format</label>
+        <div class="format-options">
+          <div class="format-option">
+            <input type="radio" id="mp3" name="format" value="mp3" checked>
+            <label for="mp3">MP3 (Audio)</label>
+          </div>
+          <div class="format-option">
+            <input type="radio" id="mp4" name="format" value="mp4">
+            <label for="mp4">MP4 (Video)</label>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" id="submitBtn">Convert</button>
+    </form>
+
+    <div id="status" class="status"></div>
+
+    <div class="footer">
+      <a href="/health">Check API Status</a>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
