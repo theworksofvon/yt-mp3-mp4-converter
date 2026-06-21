@@ -12,6 +12,7 @@ describe("convertRequestSchema", () => {
       { url: "https://youtu.be/jNQXAC9IVRw", format: "mp4" },
       { url: "https://www.youtube.com/shorts/jNQXAC9IVRw", format: "mp3" },
       { url: "youtube.com/watch?v=jNQXAC9IVRw", format: "mp4" },
+      { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", format: "transcript" },
       { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", format: "mp3", quality: "high" },
     ];
 

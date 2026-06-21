@@ -7,6 +7,8 @@ import {
   FileSizeError,
   parseYtDlpError,
 } from "./errors.js";
+import { readdir } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 
 // YouTube URL validation regex
 export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/;
@@ -25,9 +27,11 @@ export interface VideoInfo {
 
 export interface ConversionOptions {
   url: string;
-  format: "mp3" | "mp4";
+  format: OutputFormat;
   outputDir: string;
 }
+
+export type OutputFormat = "mp3" | "mp4" | "transcript";
 
 export interface ConversionResult {
   jobId: string;
@@ -165,8 +169,9 @@ async function spawnYtDlp(args: string[], timeoutSeconds: number = 300): Promise
   });
 
   // Set up timeout
+  let timeoutId: Timer | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new NetworkTimeoutError(timeoutSeconds)), timeoutSeconds * 1000);
+    timeoutId = setTimeout(() => reject(new NetworkTimeoutError(timeoutSeconds)), timeoutSeconds * 1000);
   });
 
   // Wait for process completion and read all output
@@ -187,6 +192,10 @@ async function spawnYtDlp(args: string[], timeoutSeconds: number = 300): Promise
     // Kill the process if it's still running
     proc.kill();
     throw error;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -343,6 +352,124 @@ export async function convertToMp4(url: string, outputPath: string): Promise<str
   }
 }
 
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function captionsToPlainText(captions: string): string {
+  const lines = captions
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim());
+
+  const transcript: string[] = [];
+  let skippingBlock = false;
+
+  for (const line of lines) {
+    if (!line) {
+      skippingBlock = false;
+      continue;
+    }
+
+    if (/^(WEBVTT|Kind:|Language:)/i.test(line)) continue;
+    if (/^(NOTE|STYLE|REGION)(\s|$)/i.test(line)) {
+      skippingBlock = true;
+      continue;
+    }
+    if (skippingBlock) continue;
+    if (/^\d+$/.test(line)) continue;
+    if (line.includes("-->")) continue;
+
+    const plain = decodeHtmlEntities(
+      line
+        .replace(/<[^>]+>/g, "")
+        .replace(/\{\\[^}]+\}/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    );
+
+    if (plain && transcript[transcript.length - 1] !== plain) {
+      transcript.push(plain);
+    }
+  }
+
+  return transcript.join("\n") + "\n";
+}
+
+async function findCaptionFile(outputPath: string): Promise<string | undefined> {
+  const directory = dirname(outputPath);
+  const prefix = `${basename(outputPath)}.`;
+  const files = await readdir(directory);
+
+  return files
+    .filter((file) => file.startsWith(prefix) && /\.(vtt|srt)$/i.test(file))
+    .sort((a, b) => {
+      const aIsEnglish = /\.en(-|\.|$)/i.test(a);
+      const bIsEnglish = /\.en(-|\.|$)/i.test(b);
+      return Number(bIsEnglish) - Number(aIsEnglish);
+    })
+    .map((file) => `${directory}/${file}`)[0];
+}
+
+/**
+ * Downloads available YouTube captions and saves them as a plain-text transcript.
+ */
+export async function downloadTranscript(url: string, outputPath: string): Promise<string> {
+  if (!isValidYouTubeUrl(url)) {
+    throw new InvalidUrlError(url);
+  }
+
+  const cleanUrl = url.trim();
+  const safePath = sanitizeOutputPath(outputPath);
+
+  const args = [
+    "--skip-download",
+    "--write-subs",
+    "--write-auto-subs",
+    "--sub-langs", "en.*",
+    "--sub-format", "vtt/srt",
+    "--no-playlist",
+    "-o", safePath,
+    "--no-progress",
+    cleanUrl,
+  ];
+
+  try {
+    const result = await spawnYtDlp(args, 120);
+
+    if (result.exitCode !== 0) {
+      throw parseYtDlpError(result.stderr);
+    }
+
+    const captionPath = await findCaptionFile(safePath);
+    if (!captionPath) {
+      throw new ConversionError("transcript", "No English captions or transcript were found for this video");
+    }
+
+    const rawCaptions = await Bun.file(captionPath).text();
+    const transcript = captionsToPlainText(rawCaptions);
+    if (!transcript.trim()) {
+      throw new ConversionError("transcript", "Downloaded captions did not contain readable transcript text");
+    }
+
+    const finalPath = `${safePath}.txt`;
+    await Bun.write(finalPath, transcript);
+    return finalPath;
+  } catch (error) {
+    if (error instanceof InvalidUrlError || error instanceof VideoNotAccessibleError ||
+        error instanceof NetworkTimeoutError || error instanceof FileSizeError ||
+        error instanceof ConversionError) {
+      throw error;
+    }
+    throw new ConversionError("transcript", error instanceof Error ? error.message : String(error));
+  }
+}
+
 /**
  * Generates a unique job ID
  */
@@ -461,6 +588,9 @@ export function sanitizeAndValidateYouTubeUrl(url: string): { isValid: boolean; 
   }
 
   const videoId = videoIdMatch[1];
+  if (!videoId) {
+    return { isValid: false, error: "Could not extract valid video ID" };
+  }
 
   // Additional validation: video ID should only contain safe characters
   if (!/^[a-zA-Z0-9_-]+$/.test(videoId)) {

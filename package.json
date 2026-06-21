@@ -3,6 +3,14 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "cli": "bun run src/cli.ts",
+    "mp3": "bun run src/cli.ts mp3",
+    "mp4": "bun run src/cli.ts mp4",
+    "transcript": "bun run src/cli.ts transcript",
+    "test": "bun test"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

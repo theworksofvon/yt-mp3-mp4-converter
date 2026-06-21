@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube to MP3/MP4 Converter</title>
+  <title>YouTube to MP3/MP4/Transcript Converter</title>
   <style>
     * {
       box-sizing: border-box;
@@ -27,7 +27,7 @@
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
       padding: 40px;
       width: 100%;
-      max-width: 500px;
+      max-width: 560px;
     }
 
     h1 {
@@ -71,8 +71,9 @@
     }
 
     .format-options {
-      display: flex;
-      gap: 16px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
     }
 
     .format-option {
@@ -116,6 +117,16 @@
       font-weight: 600;
       cursor: pointer;
       transition: background 0.2s;
+    }
+
+    @media (max-width: 560px) {
+      .container {
+        padding: 28px;
+      }
+
+      .format-options {
+        grid-template-columns: 1fr;
+      }
     }
 
     button:hover:not(:disabled) {
@@ -223,8 +234,8 @@
 </head>
 <body>
   <div class="container">
-    <h1>YouTube to MP3/MP4 Converter</h1>
-    <p class="subtitle">Download and convert YouTube videos to audio or video files</p>
+    <h1>YouTube to MP3/MP4/Transcript Converter</h1>
+    <p class="subtitle">Download YouTube videos as audio, video, or text transcripts</p>
 
     <form id="converterForm">
       <div class="form-group">
@@ -249,10 +260,14 @@
             <input type="radio" id="mp4" name="format" value="mp4">
             <label for="mp4">MP4 (Video)</label>
           </div>
+          <div class="format-option">
+            <input type="radio" id="transcript" name="format" value="transcript">
+            <label for="transcript">Transcript</label>
+          </div>
         </div>
       </div>
 
-      <button type="submit" id="submitBtn">Convert</button>
+      <button type="submit" id="submitBtn">Download</button>
     </form>
 
     <div id="status" class="status"></div>

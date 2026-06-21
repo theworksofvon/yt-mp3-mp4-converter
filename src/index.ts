@@ -7,8 +7,10 @@ import {
   getVideoInfo,
   convertToMp3,
   convertToMp4,
+  downloadTranscript,
   generateJobId,
   sanitizeFilename,
+  type OutputFormat,
   type VideoInfo,
 } from "./yt-dlp.js";
 import {
@@ -118,7 +120,7 @@ app.get("/health", async (c) => {
 
     const ffmpegReader = ffmpegCheck.stdout.getReader();
     const { value: ffmpegValue } = await ffmpegReader.read();
-    const ffmpegVersion = new TextDecoder().decode(ffmpegValue).split("\n")[0].trim();
+    const ffmpegVersion = new TextDecoder().decode(ffmpegValue).split("\n")[0]?.trim() || "";
 
     return c.json({
       status: "healthy",
@@ -147,7 +149,7 @@ const convertSchema = convertRequestSchema;
 // In-memory job storage (in production, use a proper database/Redis)
 const jobs = new Map<string, {
   status: "processing" | "completed" | "failed";
-  format: "mp3" | "mp4";
+  format: OutputFormat;
   videoInfo?: VideoInfo;
   outputPath?: string;
   filename?: string;
@@ -173,7 +175,7 @@ app.post("/api/convert", async (c) => {
       return c.json({
         error: "Invalid request",
         code: "VALIDATION_ERROR",
-        details: result.error.errors,
+        details: result.error.issues,
       }, 400);
     }
 
@@ -202,9 +204,13 @@ app.post("/api/convert", async (c) => {
         let finalPath: string;
         if (format === "mp3") {
           finalPath = await convertToMp3(url, outputPath);
-        } else {
+        } else if (format === "mp4") {
           finalPath = await convertToMp4(url, outputPath);
+        } else {
+          finalPath = await downloadTranscript(url, outputPath);
         }
+
+        const extension = format === "mp3" ? ".mp3" : format === "mp4" ? ".mp4" : ".txt";
 
         // Update job with completion
         jobs.set(jobId, {
@@ -212,7 +218,7 @@ app.post("/api/convert", async (c) => {
           format,
           videoInfo,
           outputPath: finalPath,
-          filename: safeFilename + (format === "mp3" ? ".mp3" : ".mp4"),
+          filename: safeFilename + extension,
           createdAt: Date.now(),
         });
       } catch (error) {
@@ -258,7 +264,7 @@ app.get("/api/jobs/:jobId", (c) => {
     return c.json({
       error: "Invalid job ID format",
       code: "VALIDATION_ERROR",
-      details: validationResult.error.errors,
+      details: validationResult.error.issues,
     }, 400);
   }
 
@@ -322,10 +328,16 @@ app.get("/downloads/:jobId", async (c) => {
       }, 404);
     }
 
+    const contentType = job.format === "mp3"
+      ? "audio/mpeg"
+      : job.format === "mp4"
+        ? "video/mp4"
+        : "text/plain; charset=utf-8";
+
     // Return file with appropriate headers
     return new Response(file, {
       headers: {
-        "Content-Type": job.format === "mp3" ? "audio/mpeg" : "video/mp4",
+        "Content-Type": contentType,
         "Content-Disposition": `attachment; filename="${job.filename}"`,
       },
     });

@@ -79,8 +79,10 @@ async function handleSubmit(event) {
   submitBtn.disabled = true;
 
   try {
+    const action = format === 'transcript' ? 'transcript download' : 'conversion';
+
     // Show processing status
-    showStatus('Starting conversion...', 'processing');
+    showStatus(`Starting ${action}...`, 'processing');
 
     // Start conversion
     const response = await fetch(`${API_BASE}/api/convert`, {
@@ -99,7 +101,7 @@ async function handleSubmit(event) {
     const { jobId } = await response.json();
 
     // Poll for completion
-    showStatus(`Converting ${format.toUpperCase()}... This may take a moment.`, 'processing');
+    showStatus(`${format === 'transcript' ? 'Preparing transcript' : `Converting ${format.toUpperCase()}`}... This may take a moment.`, 'processing');
 
     const job = await pollJobStatus(jobId);
 
@@ -109,7 +111,7 @@ async function handleSubmit(event) {
       ? job.filename.substring(0, 37) + '...' + job.filename.slice(-4)
       : job.filename;
     showStatus(
-      `Conversion complete!<br><a href="${downloadUrl}" class="download-link" download="${job.filename}">Download ${job.format.toUpperCase()}</a><span class="filename" title="${job.filename}">${displayName}</span>`,
+      `${format === 'transcript' ? 'Transcript ready!' : 'Conversion complete!'}<br><a href="${downloadUrl}" class="download-link" download="${job.filename}">Download ${job.format === 'transcript' ? 'Transcript' : job.format.toUpperCase()}</a><span class="filename" title="${job.filename}">${displayName}</span>`,
       'success'
     );
 

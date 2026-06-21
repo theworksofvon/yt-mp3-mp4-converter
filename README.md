@@ -1,6 +1,6 @@
-# YouTube to MP3/MP4 Converter
+# YouTube to MP3/MP4/Transcript Converter
 
-A simple web application to convert YouTube videos to MP3 (audio) or MP4 (video) format. Built with Bun and Hono.
+A simple web application and CLI to download YouTube videos as MP3 audio, MP4 video, or plain-text transcripts. Built with Bun and Hono.
 
 ## Quick Start
 
@@ -9,7 +9,7 @@ A simple web application to convert YouTube videos to MP3 (audio) or MP4 (video)
 bun install
 
 # Start the server
-bun run src/index.ts
+bun run start
 ```
 
 Open http://localhost:3000 in your browser.
@@ -50,11 +50,33 @@ winget install yt-dlp ffmpeg
 
 ## Usage
 
-1. Start the server: `bun run src/index.ts`
+1. Start the server: `bun run start`
 2. Open http://localhost:3000
 3. Paste a YouTube URL
-4. Select MP3 or MP4 format
-5. Click Convert and wait for download
+4. Select MP3, MP4, or Transcript
+5. Click Download and wait for the file
+
+## CLI Usage
+
+Run a command with a URL:
+
+```bash
+bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
+bun run mp3 "https://www.youtube.com/watch?v=VIDEO_ID"
+bun run mp4 "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+Or omit the URL and paste it when prompted:
+
+```bash
+bun run transcript
+```
+
+CLI downloads are saved to `./downloads` by default. Set `CLIENT_DOWNLOAD_DIR` to change that location:
+
+```bash
+CLIENT_DOWNLOAD_DIR=/tmp/videos bun run transcript "https://youtu.be/VIDEO_ID"
+```
 
 ## Docker
 
@@ -82,7 +104,7 @@ Content-Type: application/json
 
 {
   "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "format": "mp3"  // or "mp4"
+  "format": "mp3"  // "mp3", "mp4", or "transcript"
 }
 ```
 
@@ -118,7 +140,7 @@ Response:
 ```
 GET /downloads/:jobId
 ```
-Returns the converted file for download.
+Returns the converted file or transcript for download.
 
 ## Configuration
 
@@ -128,6 +150,7 @@ Environment variables (optional):
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
 | `DOWNLOAD_DIR` | `/tmp/yt-converter-downloads` | Temp file storage |
+| `CLIENT_DOWNLOAD_DIR` | `./downloads` | CLI download location |
 | `MAX_FILE_SIZE_MB` | `500` | Max file size for MP3 |
 
 Create a `.env` file or set environment variables:
@@ -141,6 +164,7 @@ PORT=8080 bun run src/index.ts
 yt-mp3-mp4-converter/
 ├── src/
 │   ├── index.ts        # Server and routes
+│   ├── cli.ts          # Terminal download commands
 │   ├── yt-dlp.ts       # yt-dlp wrapper
 │   ├── errors.ts       # Error classes
 │   └── schemas.ts      # Validation schemas
