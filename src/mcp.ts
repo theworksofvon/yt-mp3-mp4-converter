@@ -1,0 +1,120 @@
+import { mkdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod/v4";
+import {
+  downloadTranscript,
+  getVideoInfo,
+  sanitizeFilename,
+} from "./yt-dlp.js";
+
+const CACHE_DIR = resolve(process.env.MCP_TRANSCRIPT_DIR || "/tmp/yt-transcript-mcp-cache");
+
+async function getTranscript(url: string): Promise<{
+  id: string;
+  title: string;
+  uploader: string;
+  duration: number;
+  uploadDate: string;
+  transcript: string;
+  transcriptPath: string;
+}> {
+  await mkdir(CACHE_DIR, { recursive: true });
+
+  const videoInfo = await getVideoInfo(url);
+  const basePath = `${CACHE_DIR}/${videoInfo.id}-${sanitizeFilename(videoInfo.title)}`;
+  const transcriptPath = await downloadTranscript(url, basePath);
+  const transcript = await Bun.file(transcriptPath).text();
+
+  return {
+    id: videoInfo.id,
+    title: videoInfo.title,
+    uploader: videoInfo.uploader,
+    duration: videoInfo.duration,
+    uploadDate: videoInfo.upload_date,
+    transcript,
+    transcriptPath,
+  };
+}
+
+const server = new McpServer({
+  name: "youtube-transcript-context",
+  version: "1.0.0",
+});
+
+server.registerTool(
+  "get_youtube_video_info",
+  {
+    title: "Get YouTube Video Info",
+    description: "Fetch metadata for a single YouTube video without downloading media.",
+    inputSchema: {
+      url: z.string().min(1).describe("YouTube video URL"),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({ url }) => {
+    const info = await getVideoInfo(url);
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          id: info.id,
+          title: info.title,
+          uploader: info.uploader,
+          duration: info.duration,
+          uploadDate: info.upload_date,
+          thumbnail: info.thumbnail,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.registerTool(
+  "get_youtube_transcript",
+  {
+    title: "Get YouTube Transcript",
+    description: "Download a YouTube transcript/captions file and return plain text with video metadata.",
+    inputSchema: {
+      url: z.string().min(1).describe("YouTube video URL"),
+      includeMetadata: z.boolean().default(true).describe("Include video metadata before the transcript"),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({ url, includeMetadata }) => {
+    const result = await getTranscript(url);
+    const metadata = [
+      `Title: ${result.title}`,
+      `Uploader: ${result.uploader}`,
+      `Duration: ${result.duration} seconds`,
+      `Upload date: ${result.uploadDate}`,
+      `Video ID: ${result.id}`,
+      `Transcript cache: ${result.transcriptPath}`,
+    ].join("\n");
+
+    return {
+      content: [{
+        type: "text",
+        text: includeMetadata ? `${metadata}\n\n${result.transcript}` : result.transcript,
+      }],
+    };
+  }
+);
+
+async function main(): Promise<void> {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

@@ -78,6 +78,35 @@ CLI downloads are saved to `./downloads` by default. Set `CLIENT_DOWNLOAD_DIR` t
 CLIENT_DOWNLOAD_DIR=/tmp/videos bun run transcript "https://youtu.be/VIDEO_ID"
 ```
 
+## MCP Usage
+
+This project also exposes a local MCP server for LLM clients that support stdio MCP tools.
+
+```bash
+bun run src/mcp.ts
+```
+
+Example MCP server config:
+
+```json
+{
+  "mcpServers": {
+    "youtube-transcript-context": {
+      "command": "bun",
+      "args": ["run", "/absolute/path/to/yt-mp3-mp4-converter/src/mcp.ts"],
+      "env": {
+        "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
+      }
+    }
+  }
+}
+```
+
+Available MCP tools:
+
+- `get_youtube_video_info` - fetches metadata for a single YouTube video.
+- `get_youtube_transcript` - returns plain-text transcript context with optional metadata.
+
 ## Docker
 
 ```bash
@@ -151,6 +180,7 @@ Environment variables (optional):
 | `PORT` | `3000` | Server port |
 | `DOWNLOAD_DIR` | `/tmp/yt-converter-downloads` | Temp file storage |
 | `CLIENT_DOWNLOAD_DIR` | `./downloads` | CLI download location |
+| `MCP_TRANSCRIPT_DIR` | `/tmp/yt-transcript-mcp-cache` | MCP transcript cache location |
 | `MAX_FILE_SIZE_MB` | `500` | Max file size for MP3 |
 
 Create a `.env` file or set environment variables:
@@ -165,6 +195,7 @@ yt-mp3-mp4-converter/
 ├── src/
 │   ├── index.ts        # Server and routes
 │   ├── cli.ts          # Terminal download commands
+│   ├── mcp.ts          # MCP stdio server
 │   ├── yt-dlp.ts       # yt-dlp wrapper
 │   ├── errors.ts       # Error classes
 │   └── schemas.ts      # Validation schemas
