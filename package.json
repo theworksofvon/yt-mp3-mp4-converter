@@ -1,5 +1,5 @@
 {
-  "name": "youtube-transcript-mcp",
+  "name": "yt-video-transcript-mcp",
   "version": "0.1.0",
   "description": "YouTube transcript downloader, web converter, CLI, and MCP stdio server.",
   "license": "MIT",
@@ -20,7 +20,7 @@
     "README.md"
   ],
   "bin": {
-    "youtube-transcript-mcp": "./src/mcp.ts"
+    "yt-video-transcript-mcp": "./src/mcp.ts"
   },
   "scripts": {
     "start": "bun run src/index.ts",
@@ -28,6 +28,7 @@
     "mp3": "bun run src/cli.ts mp3",
     "mp4": "bun run src/cli.ts mp4",
     "transcript": "bun run src/cli.ts transcript",
+    "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "devDependencies": {

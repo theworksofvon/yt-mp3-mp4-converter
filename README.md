@@ -100,14 +100,14 @@ Recommended setup is a one-time global install, then point your MCP client at th
 After this package is published, install it globally:
 
 ```bash
-npm install -g youtube-transcript-mcp
+npm install -g yt-video-transcript-mcp
 ```
 
 ```json
 {
   "mcpServers": {
     "youtube-transcript-context": {
-      "command": "youtube-transcript-mcp",
+      "command": "yt-video-transcript-mcp",
       "args": [],
       "env": {
         "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
@@ -124,7 +124,7 @@ If you prefer no global install, most MCP clients can also run package managers 
   "mcpServers": {
     "youtube-transcript-context": {
       "command": "npx",
-      "args": ["-y", "youtube-transcript-mcp"],
+      "args": ["-y", "yt-video-transcript-mcp"],
       "env": {
         "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
       }
@@ -140,7 +140,7 @@ Or with Bun:
   "mcpServers": {
     "youtube-transcript-context": {
       "command": "bunx",
-      "args": ["youtube-transcript-mcp"],
+      "args": ["yt-video-transcript-mcp"],
       "env": {
         "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
       }
@@ -283,6 +283,16 @@ yt-mp3-mp4-converter/
 ```bash
 bun test
 ```
+
+## Publishing
+
+Publishing is handled by `.github/workflows/release.yml` after changes merge to `main`.
+The workflow installs dependencies, runs typecheck/tests, verifies the npm package contents,
+and publishes the current `package.json` version if it is not already published.
+
+The npm package name is `yt-video-transcript-mcp`. Configure npm trusted publishing for this
+repository/workflow in npm, or provide equivalent npm publishing credentials before relying on
+the workflow.
 
 ## License
 
