@@ -78,22 +78,37 @@ CLI downloads are saved to `./downloads` by default. Set `CLIENT_DOWNLOAD_DIR` t
 CLIENT_DOWNLOAD_DIR=/tmp/videos bun run transcript "https://youtu.be/VIDEO_ID"
 ```
 
-## MCP Usage
+## Working With The MCP Server
 
-This project also exposes a local MCP server for LLM clients that support stdio MCP tools.
+The MCP server is a stdio tool provider for LLM clients and coding agents. It lets an agent fetch YouTube metadata or transcript context directly from a URL.
+
+Available MCP tools:
+
+- `get_youtube_video_info` - fetches metadata for a single YouTube video.
+- `get_youtube_transcript` - returns plain-text transcript context with optional metadata.
+
+The MCP server requires `yt-dlp` on the machine running the agent:
 
 ```bash
-bun run src/mcp.ts
+brew install yt-dlp
 ```
 
-Example MCP server config:
+### Package-style install
+
+Recommended setup is a one-time global install, then point your MCP client at the installed binary. This avoids package-manager startup output or install prompts on MCP stdio.
+
+After this package is published, install it globally:
+
+```bash
+npm install -g youtube-transcript-mcp
+```
 
 ```json
 {
   "mcpServers": {
     "youtube-transcript-context": {
-      "command": "bun",
-      "args": ["run", "/absolute/path/to/yt-mp3-mp4-converter/src/mcp.ts"],
+      "command": "youtube-transcript-mcp",
+      "args": [],
       "env": {
         "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
       }
@@ -102,10 +117,66 @@ Example MCP server config:
 }
 ```
 
-Available MCP tools:
+If you prefer no global install, most MCP clients can also run package managers directly. If your client has trouble during first startup, use the global install form above so the MCP process starts directly:
 
-- `get_youtube_video_info` - fetches metadata for a single YouTube video.
-- `get_youtube_transcript` - returns plain-text transcript context with optional metadata.
+```json
+{
+  "mcpServers": {
+    "youtube-transcript-context": {
+      "command": "npx",
+      "args": ["-y", "youtube-transcript-mcp"],
+      "env": {
+        "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
+      }
+    }
+  }
+}
+```
+
+Or with Bun:
+
+```json
+{
+  "mcpServers": {
+    "youtube-transcript-context": {
+      "command": "bunx",
+      "args": ["youtube-transcript-mcp"],
+      "env": {
+        "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
+      }
+    }
+  }
+}
+```
+
+### Local development config
+
+From this checkout, point your MCP client at the source entrypoint:
+
+```json
+{
+  "mcpServers": {
+    "youtube-transcript-context": {
+      "command": "bun",
+      "args": [
+        "run",
+        "/Users/davontaejackson/dev/yt-mp3-mp4-converter/src/mcp.ts"
+      ],
+      "env": {
+        "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
+      }
+    }
+  }
+}
+```
+
+Use the direct file command for local development. Package scripts can print extra text to stdout, and MCP stdio must stay valid JSON-RPC.
+
+Once configured, ask your agent to use the YouTube transcript tool:
+
+```text
+Use the YouTube transcript MCP tool to summarize https://www.youtube.com/watch?v=VIDEO_ID
+```
 
 ## Docker
 

@@ -1,8 +1,27 @@
 {
-  "name": "yt-mp3-mp4-converter",
+  "name": "youtube-transcript-mcp",
+  "version": "0.1.0",
+  "description": "YouTube transcript downloader, web converter, CLI, and MCP stdio server.",
+  "license": "MIT",
   "module": "index.ts",
   "type": "module",
-  "private": true,
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src/cli.ts",
+    "src/errors.ts",
+    "src/index.ts",
+    "src/mcp.ts",
+    "src/schemas.ts",
+    "src/yt-dlp.ts",
+    "public",
+    "README.md"
+  ],
+  "bin": {
+    "youtube-transcript-mcp": "./src/mcp.ts"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "cli": "bun run src/cli.ts",

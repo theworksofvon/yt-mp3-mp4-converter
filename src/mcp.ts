@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "yt-mp3-mp4-converter",
+      "name": "youtube-transcript-mcp",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
         "hono": "^4.11.4",
