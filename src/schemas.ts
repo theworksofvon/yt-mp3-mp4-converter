@@ -10,10 +10,7 @@ import { z } from "zod";
  * - Type safety
  */
 export const convertRequestSchema = z.object({
-  url: z.string({
-    required_error: "URL is required",
-    invalid_type_error: "URL must be a string",
-  })
+  url: z.string("URL is required and must be a string")
     .min(1, "URL cannot be empty")
     .max(500, "URL is too long (maximum 500 characters)")
     .trim()
@@ -58,14 +55,10 @@ export const convertRequestSchema = z.object({
       return trimmed;
     }),
 
-  format: z.enum(["mp3", "mp4"], {
-    errorMap: () => ({ message: "Format must be either 'mp3' or 'mp4'" }),
-  }),
+  format: z.enum(["mp3", "mp4", "transcript"], "Format must be 'mp3', 'mp4', or 'transcript'"),
 
   // Optional: quality preference (for future use)
-  quality: z.enum(["low", "medium", "high"], {
-    errorMap: () => ({ message: "Quality must be 'low', 'medium', or 'high'" }),
-  }).optional(),
+  quality: z.enum(["low", "medium", "high"], "Quality must be 'low', 'medium', or 'high'").optional(),
 });
 
 /**
@@ -76,10 +69,7 @@ export type ConvertRequest = z.infer<typeof convertRequestSchema>;
 /**
  * Schema for validating job ID parameters
  */
-export const jobIdSchema = z.string({
-  required_error: "Job ID is required",
-  invalid_type_error: "Job ID must be a string",
-})
+export const jobIdSchema = z.string("Job ID is required and must be a string")
   .min(1, "Job ID cannot be empty")
   .max(100, "Job ID is too long")
   .refine(
@@ -92,7 +82,7 @@ export const jobIdSchema = z.string({
  */
 export const urlQuerySchema = z.object({
   url: z.string().min(1).max(500).optional(),
-  format: z.enum(["mp3", "mp4"]).optional(),
+  format: z.enum(["mp3", "mp4", "transcript"]).optional(),
 });
 
 /**

@@ -1,162 +1,191 @@
-# YouTube to MP3/MP4 Converter
+# YouTube MP3, MP4, and Transcript Downloader
 
-A simple web application to convert YouTube videos to MP3 (audio) or MP4 (video) format. Built with Bun and Hono.
+Download YouTube media from a browser or CLI, and give AI clients direct access to YouTube metadata and transcripts through MCP.
 
-## Quick Start
+The web app and CLI provide three outputs:
+
+- MP3 audio
+- MP4 video
+- Plain-text English transcripts from manual or auto-generated YouTube captions
+
+> Transcripts come from captions already available on YouTube. This project does not perform speech-to-text on videos without captions.
+
+| Surface | Capabilities |
+| --- | --- |
+| Browser/API | MP3, MP4, and transcript downloads |
+| CLI | MP3, MP4, and transcript downloads |
+| MCP | Video metadata and transcript context for AI clients |
+
+## Quick start
 
 ```bash
-# Install dependencies
-bun install
-
-# Start the server
-bun run src/index.ts
+git clone https://github.com/theworksofvon/yt-mp3-mp4-converter.git
+cd yt-mp3-mp4-converter
+./scripts/setup.sh
+bun run start
 ```
 
-Open http://localhost:3000 in your browser.
+Open <http://localhost:3000>, paste a YouTube URL, choose an output, and select **Download**.
 
-## Requirements
+`setup.sh` is safe to run again. It installs or upgrades to Bun 1.3.6 or newer, detects existing tools, installs only missing requirements, installs the locked Bun dependencies, and runs the local checks. Automatic system-package installation supports:
 
-- [Bun](https://bun.sh) (v1.0+)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube downloader
-- [ffmpeg](https://ffmpeg.org) - Media processing
+- macOS, bootstrapping Homebrew when needed
+- Debian/Ubuntu with `apt-get`
+- Fedora/RHEL with `dnf`
+- Arch Linux with `pacman`
 
-### Installing Dependencies
+Verify an existing machine without installing anything:
 
-**Ubuntu/Debian:**
 ```bash
-# Install yt-dlp
-sudo apt install yt-dlp
-# or via pip
-pip install yt-dlp
-
-# Install ffmpeg
-sudo apt install ffmpeg
+./scripts/setup.sh --check
 ```
 
-**macOS:**
+On Windows, use WSL for the same setup command, or manually install [Bun](https://bun.sh), [yt-dlp](https://github.com/yt-dlp/yt-dlp), and [FFmpeg](https://ffmpeg.org/download.html).
+
+## Command line
+
 ```bash
-brew install yt-dlp ffmpeg
+bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
+bun run mp3 "https://www.youtube.com/watch?v=VIDEO_ID"
+bun run mp4 "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-**Windows:**
+Omit the URL to enter it interactively. Files are saved under `./downloads` unless `CLIENT_DOWNLOAD_DIR` is set:
+
 ```bash
-# Using winget
-winget install yt-dlp ffmpeg
-
-# Or download from:
-# https://github.com/yt-dlp/yt-dlp/releases
-# https://ffmpeg.org/download.html
+CLIENT_DOWNLOAD_DIR=/tmp/youtube-downloads bun run transcript "https://youtu.be/VIDEO_ID"
 ```
 
-## Usage
+## MCP for Codex, Claude, Cursor, and other clients
 
-1. Start the server: `bun run src/index.ts`
-2. Open http://localhost:3000
-3. Paste a YouTube URL
-4. Select MP3 or MP4 format
-5. Click Convert and wait for download
+The repository includes a local stdio MCP server powered by the same transcript implementation as the web app and CLI. It is model-provider independent; the MCP host only needs to be able to launch a local command.
+
+Run setup first, then register the stable launcher with your client.
+
+Codex:
+
+```bash
+codex mcp add youtube-transcript -- "$(pwd)/scripts/run-mcp.sh"
+codex mcp list
+```
+
+Claude Code:
+
+```bash
+claude mcp add --transport stdio --scope user youtube-transcript -- "$(pwd)/scripts/run-mcp.sh"
+claude mcp list
+```
+
+Generic MCP JSON:
+
+```json
+{
+  "mcpServers": {
+    "youtube-transcript": {
+      "command": "/absolute/path/to/yt-mp3-mp4-converter/scripts/run-mcp.sh",
+      "args": [],
+      "env": {
+        "MCP_TRANSCRIPT_DIR": "/absolute/path/to/your/transcript-cache"
+      }
+    }
+  }
+}
+```
+
+The server exposes:
+
+| Tool | Purpose |
+| --- | --- |
+| `get_youtube_video_info` | Return a video's title, uploader, duration, upload date, thumbnail, and ID. |
+| `get_youtube_transcript` | Return cleaned English caption text, optionally preceded by video metadata. |
+
+See [docs/MCP.md](docs/MCP.md) for package installation, provider configuration, verification, limitations, and troubleshooting.
+
+## How the shared implementation works
+
+```text
+Browser/API ─┐
+CLI ─────────┼─→ src/yt-dlp.ts → yt-dlp → YouTube
+MCP ─────────┘                     │
+                                  └─→ FFmpeg for web/CLI MP3 and MP4 only
+```
+
+Transcript downloads ask `yt-dlp` for English manual and auto-generated captions, prefer English caption files, remove VTT/SRT timing and markup, and save plain text. Videos without accessible English captions return a clear error.
+
+## Configuration
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `PORT` | `3000` | Web server port |
+| `DOWNLOAD_DIR` | `/tmp/yt-converter-downloads` | Web/API output storage |
+| `CLIENT_DOWNLOAD_DIR` | `./downloads` | CLI output storage |
+| `MCP_TRANSCRIPT_DIR` | Per-user directory in the OS temporary directory | MCP transcript cache |
+| `MAX_FILE_SIZE_MB` | `500` | MP3 size limit |
+
+On POSIX systems, including WSL, the MCP transcript cache is restricted to owner-only permissions and rejected if it is a symlink or owned by another UID. Native Windows has no UID or POSIX-mode enforcement here and relies on directory ACLs; WSL is the recommended Windows path.
 
 ## Docker
 
+Docker includes Bun, `yt-dlp`, and FFmpeg:
+
 ```bash
-# Build and run with Docker Compose
 docker compose up --build
-
-# Or build manually
-docker build -t yt-converter .
-docker run -p 3000:3000 yt-converter
 ```
 
-## API Reference
+Then open <http://localhost:3000>. The compose file persists downloads in `./downloads`.
 
-### Health Check
-```
-GET /health
-```
-Returns server status and yt-dlp/ffmpeg versions.
+## API
 
-### Convert Video
-```
+Start a job:
+
+```http
 POST /api/convert
 Content-Type: application/json
 
 {
   "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "format": "mp3"  // or "mp4"
+  "format": "transcript"
 }
 ```
 
-Response:
-```json
-{
-  "jobId": "1234567890-abcd1234",
-  "status": "processing",
-  "checkUrl": "/api/jobs/1234567890-abcd1234"
-}
+`format` accepts `mp3`, `mp4`, or `transcript`. The response contains a `jobId`.
+
+```text
+GET /api/jobs/:jobId     Check status
+GET /downloads/:jobId    Download a completed output
+GET /health              Check yt-dlp and FFmpeg availability
 ```
 
-### Check Job Status
-```
-GET /api/jobs/:jobId
-```
-
-Response:
-```json
-{
-  "jobId": "1234567890-abcd1234",
-  "status": "completed",
-  "format": "mp3",
-  "videoInfo": {
-    "title": "Video Title",
-    "duration": 180
-  },
-  "filename": "Video_Title.mp3"
-}
-```
-
-### Download File
-```
-GET /downloads/:jobId
-```
-Returns the converted file for download.
-
-## Configuration
-
-Environment variables (optional):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | Server port |
-| `DOWNLOAD_DIR` | `/tmp/yt-converter-downloads` | Temp file storage |
-| `MAX_FILE_SIZE_MB` | `500` | Max file size for MP3 |
-
-Create a `.env` file or set environment variables:
-```bash
-PORT=8080 bun run src/index.ts
-```
-
-## Project Structure
-
-```
-yt-mp3-mp4-converter/
-├── src/
-│   ├── index.ts        # Server and routes
-│   ├── yt-dlp.ts       # yt-dlp wrapper
-│   ├── errors.ts       # Error classes
-│   └── schemas.ts      # Validation schemas
-├── public/
-│   ├── index.html      # Frontend UI
-│   └── app.js          # Frontend logic
-├── Dockerfile
-├── docker-compose.yml
-└── package.json
-```
-
-## Running Tests
+## Development
 
 ```bash
-bun test
+bun install --frozen-lockfile
+bun run check
 ```
+
+`bun run check` typechecks the project, runs deterministic unit/protocol/API/CLI tests, writes LCOV output, and enforces at least 90% line and function coverage across loaded source modules. These tests use a local `yt-dlp` fixture and do not contact YouTube.
+
+For a first-time contributor setup including Chromium, or to run the browser journey afterward:
+
+```bash
+./scripts/setup.sh --with-browser
+# or, after normal setup:
+bunx playwright install chromium
+bun run check:all
+```
+
+The browser test starts the real HTTP server, submits the form, waits for a transcript job, verifies the downloaded file, and checks the inaccessible-video error path. CI also builds the production Docker image. A scheduled workflow runs one small live metadata/transcript smoke test weekly so upstream YouTube or `yt-dlp` changes are detected without making pull-request checks flaky.
+
+Manual live checks contact YouTube and must be enabled explicitly:
+
+```bash
+bun run test:live
+bun run test:integration
+```
+
+`test:live` checks metadata and transcript retrieval for one small public video. `test:integration` is the heavier legacy media-download suite.
+
+CI runs typechecking, the coverage gate, API/CLI/MCP end-to-end tests, the Chromium browser journey, shell syntax checks, a Docker build, and an npm package dry run. The npm release workflow repeats the release-critical checks after changes reach `main`; npm trusted publishing must be configured for `.github/workflows/release.yml` before the first release.
 
 ## License
 

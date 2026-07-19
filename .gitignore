@@ -1,5 +1,6 @@
 # dependencies (bun install)
 node_modules
+/downloads/
 
 # output
 out
@@ -9,6 +10,8 @@ dist
 # code coverage
 coverage
 *.lcov
+playwright-report
+test-results
 
 # logs
 logs
@@ -26,6 +29,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
+.orchestrator/
 
 # IntelliJ based IDEs
 .idea

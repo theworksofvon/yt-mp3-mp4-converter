@@ -5,6 +5,7 @@ import {
   getVideoInfo,
   convertToMp3,
   convertToMp4,
+  captionsToPlainText,
   sanitizeFilename,
   sanitizeString,
   sanitizeAndValidateYouTubeUrl,
@@ -15,6 +16,8 @@ import { InvalidUrlError } from "./errors";
 
 // Check if yt-dlp is available in PATH
 let hasYtDlp = false;
+const RUN_INTEGRATION_TESTS = process.env.RUN_INTEGRATION_TESTS === "1";
+const integrationTest = RUN_INTEGRATION_TESTS ? test : test.skip;
 
 async function checkYtDlpAvailable(): Promise<boolean> {
   try {
@@ -31,6 +34,11 @@ async function checkYtDlpAvailable(): Promise<boolean> {
 
 // Before running tests, check for yt-dlp availability
 beforeAll(async () => {
+  if (!RUN_INTEGRATION_TESTS) {
+    console.warn("\nIntegration tests skipped. Run `bun run test:integration` to enable live YouTube downloads.\n");
+    return;
+  }
+
   hasYtDlp = await checkYtDlpAvailable();
   if (!hasYtDlp) {
     console.warn("\n⚠️  yt-dlp not found in PATH. Integration tests will be skipped.");
@@ -193,9 +201,71 @@ describe("YouTube Regex Pattern", () => {
   });
 });
 
+describe("Transcript Parsing", () => {
+  test("converts VTT captions to readable plain text", () => {
+    const captions = `WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:02.000
+<c>Hello &amp; welcome</c>
+
+00:00:02.000 --> 00:00:04.000
+This is a <b>test</b>.
+`;
+
+    expect(captionsToPlainText(captions)).toBe("Hello & welcome\nThis is a test.\n");
+  });
+
+  test("removes SRT indexes, timing, metadata blocks, and duplicate lines", () => {
+    const captions = `1
+00:00:00,000 --> 00:00:01,000
+Repeated line
+
+2
+00:00:01,000 --> 00:00:02,000
+Repeated line
+
+NOTE generated metadata
+ignore this
+
+3
+00:00:02,000 --> 00:00:03,000
+Final line
+`;
+
+    expect(captionsToPlainText(captions)).toBe("Repeated line\nFinal line\n");
+  });
+
+  test("keeps numeric spoken lines that are not SRT cue indexes", () => {
+    const srt = `1
+00:00:00,000 --> 00:00:02,000
+2026
+
+2
+00:00:02,000 --> 00:00:04,000
+3
+2
+1`;
+
+    expect(captionsToPlainText(srt)).toBe("2026\n3\n2\n1\n");
+
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+42
+
+00:00:02.000 --> 00:00:04.000
+was the answer.
+`;
+
+    expect(captionsToPlainText(vtt)).toBe("42\nwas the answer.\n");
+  });
+});
+
 describe("Video Info Extraction", () => {
   // These tests require actual yt-dlp installation and network access
-  test("fetches video info from a valid URL", async () => {
+  integrationTest("fetches video info from a valid URL", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -234,7 +304,7 @@ describe("MP3 Conversion", () => {
     await Bun.write(`${TEST_DOWNLOAD_DIR}/.gitkeep`, "");
   });
 
-  test("converts YouTube video to MP3", async () => {
+  integrationTest("converts YouTube video to MP3", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -272,7 +342,7 @@ describe("MP3 Conversion", () => {
     }
   }, 120000); // 2 minute timeout for download
 
-  test("converts youtu.be short URL to MP3", async () => {
+  integrationTest("converts youtu.be short URL to MP3", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -302,7 +372,7 @@ describe("MP3 Conversion", () => {
     }
   }, 120000); // 2 minute timeout for download
 
-  test("converts short video (~4 min) to MP3", async () => {
+  integrationTest("converts short video (~4 min) to MP3", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -330,7 +400,7 @@ describe("MP3 Conversion", () => {
     }
   }, 180000); // 3 minute timeout
 
-  test("converts medium video (~15 min) to MP3", async () => {
+  integrationTest("converts medium video (~15 min) to MP3", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -358,7 +428,7 @@ describe("MP3 Conversion", () => {
     }
   }, 300000); // 5 minute timeout
 
-  test("converts long video (~28 min) to MP3", async () => {
+  integrationTest("converts long video (~28 min) to MP3", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -393,7 +463,7 @@ describe("MP4 Conversion", () => {
     await Bun.write(`${TEST_DOWNLOAD_DIR}/.gitkeep`, "");
   });
 
-  test("converts YouTube video to MP4", async () => {
+  integrationTest("converts YouTube video to MP4", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -431,7 +501,7 @@ describe("MP4 Conversion", () => {
     }
   }, 180000); // 3 minute timeout for download
 
-  test("converts youtu.be short URL to MP4", async () => {
+  integrationTest("converts youtu.be short URL to MP4", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -461,7 +531,7 @@ describe("MP4 Conversion", () => {
     }
   }, 180000); // 3 minute timeout for download
 
-  test("converts short video (~4 min) to MP4", async () => {
+  integrationTest("converts short video (~4 min) to MP4", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -489,7 +559,7 @@ describe("MP4 Conversion", () => {
     }
   }, 300000); // 5 minute timeout
 
-  test("converts medium video (~15 min) to MP4", async () => {
+  integrationTest("converts medium video (~15 min) to MP4", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;
@@ -517,7 +587,7 @@ describe("MP4 Conversion", () => {
     }
   }, 600000); // 10 minute timeout
 
-  test("converts long video (~28 min) to MP4", async () => {
+  integrationTest("converts long video (~28 min) to MP4", async () => {
     if (!hasYtDlp) {
       console.warn("Skipping: yt-dlp not installed");
       return;

@@ -71,7 +71,7 @@ export class NetworkTimeoutError extends ConverterError {
  */
 export class ConversionError extends ConverterError {
   constructor(
-    format: "mp3" | "mp4",
+    format: "mp3" | "mp4" | "transcript",
     reason: string
   ) {
     super(

@@ -1,0 +1,98 @@
+#!/usr/bin/env bun
+
+const args = Bun.argv.slice(2);
+const url = args.at(-1) || "";
+const videoId = (() => {
+  try {
+    return new URL(url).searchParams.get("v") || "fixture12345";
+  } catch {
+    return "fixture12345";
+  }
+})();
+
+function optionValue(name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
+function fail(message: string): never {
+  console.error(message);
+  process.exit(1);
+}
+
+if (args.includes("--version")) {
+  console.log("fixture-yt-dlp-1.0.0");
+  process.exit(0);
+}
+
+if (url.includes("private-video")) {
+  fail("ERROR: This video is private");
+}
+
+if (url.includes("rate-limited")) {
+  fail("ERROR: Too many requests; rate limit reached");
+}
+
+if (args.includes("--dump-json")) {
+  if (url.includes("invalid-json")) {
+    console.log("{not-json");
+    process.exit(0);
+  }
+
+  console.log(JSON.stringify({
+    id: videoId,
+    title: "Fixture Video: E2E Test",
+    duration: 42,
+    thumbnail: "https://example.test/thumbnail.jpg",
+    uploader: "Fixture Channel",
+    upload_date: "20260718",
+    filesize: url.includes("oversized") ? 600 * 1024 * 1024 : 1024,
+  }));
+  process.exit(0);
+}
+
+const outputPath = optionValue("-o");
+if (!outputPath) {
+  fail("ERROR: fixture expected an -o output path");
+}
+
+if (args.includes("--write-subs") || args.includes("--write-auto-subs")) {
+  if (url.includes("no-captions")) {
+    process.exit(0);
+  }
+
+  const captionText = process.env.YT_DLP_FIXTURE_ECHO_OUTPUT === "1"
+    ? `WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n${outputPath}\n`
+    : url.includes("empty-captions")
+    ? "WEBVTT\nKind: captions\nLanguage: en\n"
+    : `WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:02.000
+<c>Hello &amp; welcome to the fixture transcript.</c>
+
+00:00:02.000 --> 00:00:04.000
+This proves the shared download path works.
+`;
+
+  await Bun.write(`${outputPath}.en.vtt`, captionText);
+  process.exit(0);
+}
+
+if (args.includes("-x")) {
+  await Bun.write(`${outputPath}.mp3`, new Uint8Array([
+    0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+  ]));
+  process.exit(0);
+}
+
+if (args.includes("--merge-output-format")) {
+  await Bun.write(`${outputPath}.mp4`, new Uint8Array([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+    0x69, 0x73, 0x6f, 0x6d,
+  ]));
+  process.exit(0);
+}
+
+fail(`ERROR: unsupported fixture invocation: ${args.join(" ")}`);

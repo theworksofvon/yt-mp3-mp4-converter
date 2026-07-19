@@ -7,12 +7,32 @@ import {
   FileSizeError,
   parseYtDlpError,
 } from "./errors.js";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 
 // YouTube URL validation regex
 export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/;
 
 // Maximum file size in bytes (default 500MB, can be overridden via env)
 const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10) * 1024 * 1024;
+
+// yt-dlp invocation budgets, in seconds. Callers that wait on a job need these
+// to derive a deadline that outlasts the work the server is willing to do.
+export const METADATA_TIMEOUT_SECONDS = 60;
+
+export const FORMAT_TIMEOUT_SECONDS: Record<OutputFormat, number> = {
+  mp3: 300,
+  mp4: 900,
+  transcript: 120,
+};
+
+/**
+ * Longest a conversion job can legitimately take: metadata lookup plus the
+ * per-format download budget.
+ */
+export function pollTimeoutSeconds(format: OutputFormat): number {
+  return METADATA_TIMEOUT_SECONDS + FORMAT_TIMEOUT_SECONDS[format];
+}
 
 export interface VideoInfo {
   id: string;
@@ -25,9 +45,11 @@ export interface VideoInfo {
 
 export interface ConversionOptions {
   url: string;
-  format: "mp3" | "mp4";
+  format: OutputFormat;
   outputDir: string;
 }
+
+export type OutputFormat = "mp3" | "mp4" | "transcript";
 
 export interface ConversionResult {
   jobId: string;
@@ -159,14 +181,16 @@ export function isValidYouTubeUrl(url: string): boolean {
  * Spawn yt-dlp with timeout and error handling
  */
 async function spawnYtDlp(args: string[], timeoutSeconds: number = 300): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(["yt-dlp", ...args], {
+  const ytDlpExecutable = process.env.YT_DLP_PATH || "yt-dlp";
+  const proc = Bun.spawn([ytDlpExecutable, ...args], {
     stdout: "pipe",
     stderr: "pipe",
   });
 
   // Set up timeout
+  let timeoutId: Timer | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new NetworkTimeoutError(timeoutSeconds)), timeoutSeconds * 1000);
+    timeoutId = setTimeout(() => reject(new NetworkTimeoutError(timeoutSeconds)), timeoutSeconds * 1000);
   });
 
   // Wait for process completion and read all output
@@ -187,13 +211,29 @@ async function spawnYtDlp(args: string[], timeoutSeconds: number = 300): Promise
     // Kill the process if it's still running
     proc.kill();
     throw error;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   }
+}
+
+export interface VideoInfoOptions {
+  /**
+   * Reject the video when yt-dlp reports a `filesize` above the limit. Only
+   * meaningful for callers that go on to download that media stream: the
+   * reported size describes the default format, so metadata, transcript, and
+   * MP4 callers would otherwise be refused work they never attempt.
+   */
+  enforceFileSizeLimit?: boolean;
 }
 
 /**
  * Extracts video information without downloading
  */
-export async function getVideoInfo(url: string): Promise<VideoInfo> {
+export async function getVideoInfo(url: string, options: VideoInfoOptions = {}): Promise<VideoInfo> {
+  const { enforceFileSizeLimit = false } = options;
+
   if (!isValidYouTubeUrl(url)) {
     throw new InvalidUrlError(url);
   }
@@ -203,7 +243,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
   const cleanUrl = url.trim();
 
   try {
-    const result = await spawnYtDlp(["--dump-json", "--no-playlist", cleanUrl], 60);
+    const result = await spawnYtDlp(["--dump-json", "--no-playlist", cleanUrl], METADATA_TIMEOUT_SECONDS);
 
     if (!result.stdout) {
       throw parseYtDlpError(result.stderr);
@@ -212,7 +252,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
     const info = JSON.parse(result.stdout);
 
     // Check file size if available
-    if (info.filesize && info.filesize > MAX_FILE_SIZE) {
+    if (enforceFileSizeLimit && info.filesize && info.filesize > MAX_FILE_SIZE) {
       throw new FileSizeError(MAX_FILE_SIZE / (1024 * 1024), info.filesize / (1024 * 1024));
     }
 
@@ -235,7 +275,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
       throw error;
     }
 
-    if (error instanceof Error && error.message.includes("JSON.parse")) {
+    if (error instanceof SyntaxError || (error instanceof Error && /json.*parse/i.test(error.message))) {
       throw new ConverterError("Failed to parse video information", "PARSE_ERROR", 500);
     }
 
@@ -271,7 +311,7 @@ export async function convertToMp3(url: string, outputPath: string): Promise<str
   ];
 
   try {
-    const result = await spawnYtDlp(args, 300);
+    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.mp3);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
@@ -318,8 +358,8 @@ export async function convertToMp4(url: string, outputPath: string): Promise<str
   ];
 
   try {
-    // Use longer timeout for video (900 seconds = 15 minutes) due to larger file sizes
-    const result = await spawnYtDlp(args, 900);
+    // Use longer timeout for video due to larger file sizes
+    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.mp4);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
@@ -340,6 +380,148 @@ export async function convertToMp4(url: string, outputPath: string): Promise<str
       throw error;
     }
     throw new ConversionError("mp4", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+export function captionsToPlainText(captions: string): string {
+  const lines = captions
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim());
+
+  const transcript: string[] = [];
+  let skippingBlock = false;
+
+  for (const [index, line] of lines.entries()) {
+    if (!line) {
+      skippingBlock = false;
+      continue;
+    }
+
+    if (/^(WEBVTT|Kind:|Language:)/i.test(line)) continue;
+    if (/^(NOTE|STYLE|REGION)(\s|$)/i.test(line)) {
+      skippingBlock = true;
+      continue;
+    }
+    if (skippingBlock) continue;
+    // An SRT cue index is only an index when a timing line follows it;
+    // otherwise it is spoken text such as a year or a countdown.
+    if (/^\d+$/.test(line) && lines[index + 1]?.includes("-->")) continue;
+    if (line.includes("-->")) continue;
+
+    const plain = decodeHtmlEntities(
+      line
+        .replace(/<[^>]+>/g, "")
+        .replace(/\{\\[^}]+\}/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    );
+
+    if (plain && transcript[transcript.length - 1] !== plain) {
+      transcript.push(plain);
+    }
+  }
+
+  return transcript.join("\n") + "\n";
+}
+
+async function listCaptionFiles(outputPath: string): Promise<string[]> {
+  const directory = dirname(outputPath);
+  const prefix = `${basename(outputPath)}.`;
+
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    // yt-dlp creates the output directory itself, so a missing directory just
+    // means this invocation produced nothing.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+
+  return entries.filter((file) => file.startsWith(prefix) && /\.(vtt|srt)$/i.test(file));
+}
+
+async function findCaptionFile(outputPath: string): Promise<string | undefined> {
+  const directory = dirname(outputPath);
+
+  return (await listCaptionFiles(outputPath))
+    .sort((a, b) => {
+      const aIsEnglish = /\.en(-|\.|$)/i.test(a);
+      const bIsEnglish = /\.en(-|\.|$)/i.test(b);
+      return Number(bIsEnglish) - Number(aIsEnglish);
+    })
+    .map((file) => `${directory}/${file}`)[0];
+}
+
+/**
+ * Downloads available YouTube captions and saves them as a plain-text transcript.
+ */
+export async function downloadTranscript(url: string, outputPath: string): Promise<string> {
+  if (!isValidYouTubeUrl(url)) {
+    throw new InvalidUrlError(url);
+  }
+
+  const cleanUrl = url.trim();
+  const safePath = sanitizeOutputPath(outputPath);
+  let workingDirectory: string | undefined;
+
+  try {
+    const outputDirectory = dirname(safePath);
+    await mkdir(outputDirectory, { recursive: true });
+    workingDirectory = await mkdtemp(`${outputDirectory}/.${basename(safePath)}-transcript-`);
+    const invocationPath = `${workingDirectory}/${basename(safePath)}`;
+    const args = [
+      "--skip-download",
+      "--write-subs",
+      "--write-auto-subs",
+      "--sub-langs", "en.*",
+      "--sub-format", "vtt/srt",
+      "--no-playlist",
+      "-o", invocationPath,
+      "--no-progress",
+      cleanUrl,
+    ];
+    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.transcript);
+
+    if (result.exitCode !== 0) {
+      throw parseYtDlpError(result.stderr);
+    }
+
+    const captionPath = await findCaptionFile(invocationPath);
+    if (!captionPath) {
+      throw new ConversionError("transcript", "No English captions or transcript were found for this video");
+    }
+
+    const rawCaptions = await Bun.file(captionPath).text();
+    const transcript = captionsToPlainText(rawCaptions);
+    if (!transcript.trim()) {
+      throw new ConversionError("transcript", "Downloaded captions did not contain readable transcript text");
+    }
+
+    const finalPath = `${safePath}.txt`;
+    await Bun.write(finalPath, transcript);
+    return finalPath;
+  } catch (error) {
+    if (error instanceof InvalidUrlError || error instanceof VideoNotAccessibleError ||
+        error instanceof NetworkTimeoutError || error instanceof FileSizeError ||
+        error instanceof ConversionError) {
+      throw error;
+    }
+    throw new ConversionError("transcript", error instanceof Error ? error.message : String(error));
+  } finally {
+    if (workingDirectory) {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
   }
 }
 
@@ -461,6 +643,9 @@ export function sanitizeAndValidateYouTubeUrl(url: string): { isValid: boolean; 
   }
 
   const videoId = videoIdMatch[1];
+  if (!videoId) {
+    return { isValid: false, error: "Could not extract valid video ID" };
+  }
 
   // Additional validation: video ID should only contain safe characters
   if (!/^[a-zA-Z0-9_-]+$/.test(videoId)) {
