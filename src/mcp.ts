@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -11,7 +12,9 @@ import {
   sanitizeFilename,
 } from "./yt-dlp.js";
 
-const CACHE_DIR = resolve(process.env.MCP_TRANSCRIPT_DIR || "/tmp/yt-transcript-mcp-cache");
+const CACHE_DIR = process.env.MCP_TRANSCRIPT_DIR
+  ? resolve(process.env.MCP_TRANSCRIPT_DIR)
+  : resolve(tmpdir(), "yt-transcript-mcp-cache");
 
 async function getTranscript(url: string): Promise<{
   id: string;

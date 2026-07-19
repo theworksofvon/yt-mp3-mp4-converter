@@ -1,14 +1,20 @@
 # YouTube MP3, MP4, and Transcript Downloader
 
-Download a YouTube video from a browser, the command line, or any AI client that supports local MCP servers.
+Download YouTube media from a browser or CLI, and give AI clients direct access to YouTube metadata and transcripts through MCP.
 
-The project provides three outputs:
+The web app and CLI provide three outputs:
 
 - MP3 audio
 - MP4 video
 - Plain-text English transcripts from manual or auto-generated YouTube captions
 
 > Transcripts come from captions already available on YouTube. This project does not perform speech-to-text on videos without captions.
+
+| Surface | Capabilities |
+| --- | --- |
+| Browser/API | MP3, MP4, and transcript downloads |
+| CLI | MP3, MP4, and transcript downloads |
+| MCP | Video metadata and transcript context for AI clients |
 
 ## Quick start
 
@@ -23,7 +29,7 @@ Open <http://localhost:3000>, paste a YouTube URL, choose an output, and select 
 
 `setup.sh` is safe to run again. It detects existing tools, installs only missing requirements, installs the locked Bun dependencies, and runs the local checks. Automatic system-package installation supports:
 
-- macOS with Homebrew
+- macOS, bootstrapping Homebrew when needed
 - Debian/Ubuntu with `apt-get`
 - Fedora/RHEL with `dnf`
 - Arch Linux with `pacman`
@@ -101,7 +107,7 @@ See [docs/MCP.md](docs/MCP.md) for package installation, provider configuration,
 Browser/API ─┐
 CLI ─────────┼─→ src/yt-dlp.ts → yt-dlp → YouTube
 MCP ─────────┘                     │
-                                  └─→ FFmpeg for MP3/MP4 only
+                                  └─→ FFmpeg for web/CLI MP3 and MP4 only
 ```
 
 Transcript downloads ask `yt-dlp` for English manual and auto-generated captions, prefer English caption files, remove VTT/SRT timing and markup, and save plain text. Videos without accessible English captions return a clear error.
