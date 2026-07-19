@@ -71,7 +71,7 @@ function handleError(error: unknown): Response {
 }
 
 // Create Hono app
-const app = new Hono();
+export const app = new Hono();
 
 // Configure CORS for frontend access
 app.use("*", cors({
@@ -352,11 +352,10 @@ app.get("/downloads/:jobId", async (c) => {
 // Get port from environment variable (default 3000)
 const port = parseInt(process.env.PORT || "3000", 10);
 
-// Export default for Bun's native server
-export default {
-  port,
-  fetch: app.fetch,
-};
-
-// Start server with hot reload support
-console.log(`Server starting on http://localhost:${port}`);
+if (import.meta.main) {
+  Bun.serve({
+    port,
+    fetch: app.fetch,
+  });
+  console.log(`Server started on http://localhost:${port}`);
+}

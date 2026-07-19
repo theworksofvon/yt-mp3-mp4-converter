@@ -161,13 +161,29 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-Normal tests are deterministic and do not contact YouTube. Live integration tests download real media and must be enabled explicitly:
+`bun run check` typechecks the project, runs deterministic unit/protocol/API/CLI tests, writes LCOV output, and enforces at least 90% line and function coverage across loaded source modules. These tests use a local `yt-dlp` fixture and do not contact YouTube.
+
+For a first-time contributor setup including Chromium, or to run the browser journey afterward:
 
 ```bash
+./scripts/setup.sh --with-browser
+# or, after normal setup:
+bunx playwright install chromium
+bun run check:all
+```
+
+The browser test starts the real HTTP server, submits the form, waits for a transcript job, verifies the downloaded file, and checks the inaccessible-video error path. CI also builds the production Docker image. A scheduled workflow runs one small live metadata/transcript smoke test weekly so upstream YouTube or `yt-dlp` changes are detected without making pull-request checks flaky.
+
+Manual live checks contact YouTube and must be enabled explicitly:
+
+```bash
+bun run test:live
 bun run test:integration
 ```
 
-CI runs typechecking, unit tests, an MCP stdio handshake, shell syntax checks, and an npm package dry run. The npm release workflow runs after changes reach `main`; npm trusted publishing must be configured for `.github/workflows/release.yml` before the first release.
+`test:live` checks metadata and transcript retrieval for one small public video. `test:integration` is the heavier legacy media-download suite.
+
+CI runs typechecking, the coverage gate, API/CLI/MCP end-to-end tests, the Chromium browser journey, shell syntax checks, a Docker build, and an npm package dry run. The npm release workflow repeats the release-critical checks after changes reach `main`; npm trusted publishing must be configured for `.github/workflows/release.yml` before the first release.
 
 ## License
 

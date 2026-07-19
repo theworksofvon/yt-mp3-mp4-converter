@@ -163,7 +163,8 @@ export function isValidYouTubeUrl(url: string): boolean {
  * Spawn yt-dlp with timeout and error handling
  */
 async function spawnYtDlp(args: string[], timeoutSeconds: number = 300): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(["yt-dlp", ...args], {
+  const ytDlpExecutable = process.env.YT_DLP_PATH || "yt-dlp";
+  const proc = Bun.spawn([ytDlpExecutable, ...args], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -244,7 +245,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
       throw error;
     }
 
-    if (error instanceof Error && error.message.includes("JSON.parse")) {
+    if (error instanceof SyntaxError || (error instanceof Error && /json.*parse/i.test(error.message))) {
       throw new ConverterError("Failed to parse video information", "PARSE_ERROR", 500);
     }
 

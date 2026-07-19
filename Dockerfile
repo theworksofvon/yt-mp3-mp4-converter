@@ -4,23 +4,6 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
-# Install system dependencies
-# - ffmpeg: required for audio/video conversion
-# - python3 + pip: required for yt-dlp installation
-# - wget: for downloading files
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    python3 \
-    python3-pip \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install yt-dlp via pip
-RUN pip3 install --no-cache-dir yt-dlp
-
-# Download directory for converted files
-RUN mkdir -p /tmp/yt-converter-downloads
-
 # Copy package files
 COPY package.json bun.lock ./
 
@@ -44,11 +27,12 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
-    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp
-RUN pip3 install --no-cache-dir yt-dlp
+# Keep yt-dlp isolated from Debian's externally managed Python environment.
+RUN python3 -m venv /opt/yt-dlp \
+    && /opt/yt-dlp/bin/pip install --no-cache-dir yt-dlp
 
 # Create download directory with proper permissions
 RUN mkdir -p /tmp/yt-converter-downloads
@@ -63,6 +47,7 @@ COPY --from=base /app/package.json ./
 ENV PORT=3000
 ENV DOWNLOAD_DIR=/tmp/yt-converter-downloads
 ENV NODE_ENV=production
+ENV PATH="/opt/yt-dlp/bin:${PATH}"
 
 # Expose the application port
 EXPOSE 3000

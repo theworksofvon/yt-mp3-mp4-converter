@@ -48,6 +48,16 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
+function toolError(error: unknown) {
+  return {
+    isError: true as const,
+    content: [{
+      type: "text" as const,
+      text: error instanceof Error ? error.message : String(error),
+    }],
+  };
+}
+
 server.registerTool(
   "get_youtube_video_info",
   {
@@ -62,21 +72,25 @@ server.registerTool(
     },
   },
   async ({ url }) => {
-    const info = await getVideoInfo(url);
+    try {
+      const info = await getVideoInfo(url);
 
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          id: info.id,
-          title: info.title,
-          uploader: info.uploader,
-          duration: info.duration,
-          uploadDate: info.upload_date,
-          thumbnail: info.thumbnail,
-        }, null, 2),
-      }],
-    };
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            id: info.id,
+            title: info.title,
+            uploader: info.uploader,
+            duration: info.duration,
+            uploadDate: info.upload_date,
+            thumbnail: info.thumbnail,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return toolError(error);
+    }
   }
 );
 
@@ -95,22 +109,26 @@ server.registerTool(
     },
   },
   async ({ url, includeMetadata }) => {
-    const result = await getTranscript(url);
-    const metadata = [
-      `Title: ${result.title}`,
-      `Uploader: ${result.uploader}`,
-      `Duration: ${result.duration} seconds`,
-      `Upload date: ${result.uploadDate}`,
-      `Video ID: ${result.id}`,
-      `Transcript cache: ${result.transcriptPath}`,
-    ].join("\n");
+    try {
+      const result = await getTranscript(url);
+      const metadata = [
+        `Title: ${result.title}`,
+        `Uploader: ${result.uploader}`,
+        `Duration: ${result.duration} seconds`,
+        `Upload date: ${result.uploadDate}`,
+        `Video ID: ${result.id}`,
+        `Transcript cache: ${result.transcriptPath}`,
+      ].join("\n");
 
-    return {
-      content: [{
-        type: "text",
-        text: includeMetadata ? `${metadata}\n\n${result.transcript}` : result.transcript,
-      }],
-    };
+      return {
+        content: [{
+          type: "text" as const,
+          text: includeMetadata ? `${metadata}\n\n${result.transcript}` : result.transcript,
+        }],
+      };
+    } catch (error) {
+      return toolError(error);
+    }
   }
 );
 

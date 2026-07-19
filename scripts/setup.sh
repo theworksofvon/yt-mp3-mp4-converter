@@ -4,16 +4,18 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK_ONLY=false
+WITH_BROWSER=false
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/setup.sh [--check]
+Usage: ./scripts/setup.sh [--check] [--with-browser]
 
 Install and verify the local development requirements.
 
 Options:
-  --check  Verify the existing installation without installing anything.
-  --help   Show this help text.
+  --check         Verify the existing installation without installing anything.
+  --with-browser  Install Chromium and run the browser end-to-end test.
+  --help          Show this help text.
 
 Supported automatic system package installation:
   - macOS with Homebrew
@@ -140,6 +142,7 @@ verify_tools() {
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK_ONLY=true ;;
+    --with-browser) WITH_BROWSER=true ;;
     --help|-h) usage; exit 0 ;;
     *) usage >&2; die "Unknown option: $arg" ;;
   esac
@@ -160,8 +163,19 @@ else
   bun install --frozen-lockfile
 fi
 
+if [ "$WITH_BROWSER" = true ]; then
+  if [ "$CHECK_ONLY" = false ]; then
+    printf 'Installing the Playwright Chromium browser...\n'
+    bunx playwright install chromium
+  fi
+fi
+
 printf 'Running local checks...\n'
-bun run check
+if [ "$WITH_BROWSER" = true ]; then
+  bun run check:all
+else
+  bun run check
+fi
 
 cat <<EOF
 

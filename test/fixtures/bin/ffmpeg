@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [ "${1:-}" = "-version" ]; then
+  printf 'ffmpeg version fixture-1.0.0\n'
+  exit 0
+fi
+
+printf 'fixture ffmpeg only supports -version\n' >&2
+exit 1

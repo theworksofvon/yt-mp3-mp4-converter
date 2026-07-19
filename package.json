@@ -48,10 +48,15 @@
     "transcript": "bun run src/cli.ts transcript",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
+    "test:e2e": "playwright test",
     "test:integration": "RUN_INTEGRATION_TESTS=1 bun test src/yt-dlp.test.ts",
-    "check": "bun run typecheck && bun test"
+    "test:live": "bun scripts/live-smoke.ts",
+    "check": "bun run typecheck && bun run test:coverage",
+    "check:all": "bun run check && bun run test:e2e"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/bun": "latest",
     "typescript": "^5"
   },

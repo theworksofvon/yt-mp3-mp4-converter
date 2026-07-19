@@ -35,8 +35,14 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
-        run: bun test
+      - name: Test with coverage gate
+        run: bun run test:coverage
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run browser end-to-end test
+        run: bun run test:e2e
 
       - name: Check setup scripts
         run: bash -n scripts/setup.sh scripts/run-mcp.sh
