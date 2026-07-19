@@ -361,7 +361,7 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#39;/g, "'");
 }
 
-function captionsToPlainText(captions: string): string {
+export function captionsToPlainText(captions: string): string {
   const lines = captions
     .replace(/\r/g, "")
     .split("\n")

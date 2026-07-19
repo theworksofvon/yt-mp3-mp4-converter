@@ -36,7 +36,10 @@ jobs:
         run: bun run typecheck
 
       - name: Test
-        run: bun test src/schemas.test.ts
+        run: bun test
+
+      - name: Check setup scripts
+        run: bash -n scripts/setup.sh scripts/run-mcp.sh
 
       - name: Verify package
         run: npm pack --dry-run
