@@ -9,6 +9,7 @@ import {
   convertToMp4,
   downloadTranscript,
   generateJobId,
+  pollTimeoutSeconds,
   sanitizeFilename,
   type OutputFormat,
   type VideoInfo,
@@ -194,8 +195,9 @@ app.post("/api/convert", async (c) => {
     // Process conversion asynchronously
     (async () => {
       try {
-        // Get video info first
-        const videoInfo = await getVideoInfo(url);
+        // Get video info first. Only MP3 downloads the format whose size
+        // yt-dlp reports, so only MP3 can pre-reject on it.
+        const videoInfo = await getVideoInfo(url, { enforceFileSizeLimit: format === "mp3" });
 
         // Sanitize filename
         const safeFilename = sanitizeFilename(videoInfo.title);
@@ -240,6 +242,7 @@ app.post("/api/convert", async (c) => {
       status: "processing",
       message: "Conversion started",
       checkUrl: `/api/jobs/${jobId}`,
+      pollTimeoutSeconds: pollTimeoutSeconds(format),
     }, 202);
   } catch (error) {
     // Handle JSON parse errors or other request issues

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { mkdir } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -12,9 +12,40 @@ import {
   sanitizeFilename,
 } from "./yt-dlp.js";
 
+// Transcripts are private to whoever ran the server, and the OS temporary
+// directory is world-writable, so the default path is scoped to this user
+// rather than shared under a predictable name.
+function defaultCacheDir(): string {
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  const name = uid === undefined ? "yt-transcript-mcp-cache" : `yt-transcript-mcp-cache-${uid}`;
+  return resolve(tmpdir(), name);
+}
+
 const CACHE_DIR = process.env.MCP_TRANSCRIPT_DIR
   ? resolve(process.env.MCP_TRANSCRIPT_DIR)
-  : resolve(tmpdir(), "yt-transcript-mcp-cache");
+  : defaultCacheDir();
+
+/**
+ * Creates the cache directory and refuses anything another user could have
+ * planted there: a symlink, a non-directory, or a directory we do not own.
+ */
+async function ensureCacheDir(): Promise<void> {
+  await mkdir(CACHE_DIR, { recursive: true, mode: 0o700 });
+
+  const stats = await lstat(CACHE_DIR);
+  if (!stats.isDirectory()) {
+    throw new Error(`Transcript cache path is not a directory: ${CACHE_DIR}. Set MCP_TRANSCRIPT_DIR to a directory you own.`);
+  }
+
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  if (uid !== undefined && stats.uid !== uid) {
+    throw new Error(`Transcript cache directory is owned by another user: ${CACHE_DIR}. Set MCP_TRANSCRIPT_DIR to a directory you own.`);
+  }
+
+  if (process.platform !== "win32") {
+    await chmod(CACHE_DIR, 0o700);
+  }
+}
 
 async function getTranscript(url: string): Promise<{
   id: string;
@@ -25,10 +56,14 @@ async function getTranscript(url: string): Promise<{
   transcript: string;
   transcriptPath: string;
 }> {
-  await mkdir(CACHE_DIR, { recursive: true });
+  await ensureCacheDir();
 
   const videoInfo = await getVideoInfo(url);
-  const basePath = `${CACHE_DIR}/${videoInfo.id}-${sanitizeFilename(videoInfo.title)}`;
+  const callDirectory = await mkdtemp(`${CACHE_DIR}/transcript-`);
+  if (process.platform !== "win32") {
+    await chmod(callDirectory, 0o700);
+  }
+  const basePath = `${callDirectory}/${videoInfo.id}-${sanitizeFilename(videoInfo.title)}`;
   const transcriptPath = await downloadTranscript(url, basePath);
   const transcript = await Bun.file(transcriptPath).text();
 

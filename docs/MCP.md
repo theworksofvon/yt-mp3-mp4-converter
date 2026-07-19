@@ -33,7 +33,7 @@ That launcher:
 
 - resolves the repository path without relying on the client's working directory;
 - adds common Bun, Homebrew, and user-local binary directories to `PATH`;
-- chooses a portable temporary transcript-cache directory;
+- leaves the transcript-cache location to the server, which defaults to a private per-user directory;
 - reports missing setup on stderr so MCP stdout remains valid JSON-RPC; and
 - replaces itself with the MCP process for clean lifecycle handling.
 
@@ -55,7 +55,7 @@ codex mcp list
 To set a custom cache directory:
 
 ```bash
-codex mcp add --env MCP_TRANSCRIPT_DIR=/tmp/yt-transcript-mcp-cache youtube-transcript -- "$(pwd)/scripts/run-mcp.sh"
+codex mcp add --env MCP_TRANSCRIPT_DIR="$HOME/.cache/yt-transcript-mcp" youtube-transcript -- "$(pwd)/scripts/run-mcp.sh"
 ```
 
 Start a new Codex session after adding the server. Use `/mcp` in supported Codex interfaces to inspect the connection and tools. Codex stores stdio MCP configuration under the `mcp_servers` section of its configuration.
@@ -86,7 +86,7 @@ Open the client's MCP configuration and add a stdio server using an absolute lau
       "command": "/absolute/path/to/yt-mp3-mp4-converter/scripts/run-mcp.sh",
       "args": [],
       "env": {
-        "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
+        "MCP_TRANSCRIPT_DIR": "/absolute/path/to/your/transcript-cache"
       }
     }
   }
@@ -156,7 +156,8 @@ bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 - Videos without accessible English captions cannot be transcribed from their audio.
 - Private, deleted, age-restricted, region-blocked, and rate-limited videos may fail.
 - Long transcripts can consume substantial model context.
-- Cached caption and text files remain in `MCP_TRANSCRIPT_DIR` until the operating system or user removes them.
+- Plain-text transcript files remain in the transcript cache directory until the operating system or user removes them; temporary VTT/SRT caption files are cleaned up after each request.
+- On POSIX systems, including WSL, the cache defaults to a UID-scoped directory inside the OS temporary directory, is restricted to owner-only permissions, and is rejected if it is a symlink or owned by another UID. Set `MCP_TRANSCRIPT_DIR` to override it. Native Windows has no UID or POSIX-mode enforcement here and relies on directory ACLs; WSL is recommended.
 - The server makes outbound requests through `yt-dlp`; clients may request approval according to their own MCP and sandbox policies.
 
 ## Troubleshooting

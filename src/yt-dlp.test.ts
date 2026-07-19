@@ -236,6 +236,31 @@ Final line
 
     expect(captionsToPlainText(captions)).toBe("Repeated line\nFinal line\n");
   });
+
+  test("keeps numeric spoken lines that are not SRT cue indexes", () => {
+    const srt = `1
+00:00:00,000 --> 00:00:02,000
+2026
+
+2
+00:00:02,000 --> 00:00:04,000
+3
+2
+1`;
+
+    expect(captionsToPlainText(srt)).toBe("2026\n3\n2\n1\n");
+
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+42
+
+00:00:02.000 --> 00:00:04.000
+was the answer.
+`;
+
+    expect(captionsToPlainText(vtt)).toBe("42\nwas the answer.\n");
+  });
 });
 
 describe("Video Info Extraction", () => {

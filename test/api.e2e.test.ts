@@ -42,7 +42,7 @@ async function createJob(format: "mp3" | "mp4" | "transcript", videoId = "fixtur
   });
 
   expect(response.status).toBe(202);
-  return response.json() as Promise<{ jobId: string; checkUrl: string }>;
+  return response.json() as Promise<{ jobId: string; checkUrl: string; pollTimeoutSeconds: number }>;
 }
 
 async function waitForJob(jobId: string) {
@@ -134,6 +134,18 @@ describe("web API end to end", () => {
     const bytes = new Uint8Array(await download.arrayBuffer());
     expect(download.headers.get("content-type")).toBe(contentType);
     expect(new TextDecoder().decode(bytes)).toContain(marker);
+  });
+
+  test("advertises a poll deadline that outlasts each format's own budget", async () => {
+    const [mp3, mp4, transcript] = await Promise.all([
+      createJob("mp3"),
+      createJob("mp4"),
+      createJob("transcript"),
+    ]);
+
+    expect(mp3.pollTimeoutSeconds).toBe(360);
+    expect(mp4.pollTimeoutSeconds).toBe(960);
+    expect(transcript.pollTimeoutSeconds).toBe(180);
   });
 
   test("returns validation, missing-job, incomplete-job, and conversion errors", async () => {

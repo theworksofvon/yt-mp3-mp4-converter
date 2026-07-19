@@ -27,7 +27,7 @@ bun run start
 
 Open <http://localhost:3000>, paste a YouTube URL, choose an output, and select **Download**.
 
-`setup.sh` is safe to run again. It detects existing tools, installs only missing requirements, installs the locked Bun dependencies, and runs the local checks. Automatic system-package installation supports:
+`setup.sh` is safe to run again. It installs or upgrades to Bun 1.3.6 or newer, detects existing tools, installs only missing requirements, installs the locked Bun dependencies, and runs the local checks. Automatic system-package installation supports:
 
 - macOS, bootstrapping Homebrew when needed
 - Debian/Ubuntu with `apt-get`
@@ -85,7 +85,7 @@ Generic MCP JSON:
       "command": "/absolute/path/to/yt-mp3-mp4-converter/scripts/run-mcp.sh",
       "args": [],
       "env": {
-        "MCP_TRANSCRIPT_DIR": "/tmp/yt-transcript-mcp-cache"
+        "MCP_TRANSCRIPT_DIR": "/absolute/path/to/your/transcript-cache"
       }
     }
   }
@@ -119,8 +119,10 @@ Transcript downloads ask `yt-dlp` for English manual and auto-generated captions
 | `PORT` | `3000` | Web server port |
 | `DOWNLOAD_DIR` | `/tmp/yt-converter-downloads` | Web/API output storage |
 | `CLIENT_DOWNLOAD_DIR` | `./downloads` | CLI output storage |
-| `MCP_TRANSCRIPT_DIR` | OS temporary directory | MCP transcript cache |
+| `MCP_TRANSCRIPT_DIR` | Per-user directory in the OS temporary directory | MCP transcript cache |
 | `MAX_FILE_SIZE_MB` | `500` | MP3 size limit |
+
+On POSIX systems, including WSL, the MCP transcript cache is restricted to owner-only permissions and rejected if it is a symlink or owned by another UID. Native Windows has no UID or POSIX-mode enforcement here and relies on directory ACLs; WSL is the recommended Windows path.
 
 ## Docker
 

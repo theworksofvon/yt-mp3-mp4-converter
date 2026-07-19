@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK_ONLY=false
 WITH_BROWSER=false
+
+# Keep in step with the "engines.bun" constraint in package.json.
+REQUIRED_BUN_VERSION="1.3.6"
 
 usage() {
   cat <<'EOF'
@@ -44,25 +45,77 @@ run_privileged() {
   fi
 }
 
+# Returns 0 when $1 is an older release than $2. Numeric major.minor.patch
+# fields take precedence; at an equal core, a prerelease is older than stable.
+version_lt() {
+  local left_version="$1" right_version="$2"
+  local left="${left_version%%-*}" right="${right_version%%-*}"
+  local -a left_parts right_parts
+  local index a b
+
+  IFS='.' read -r -a left_parts <<< "$left"
+  IFS='.' read -r -a right_parts <<< "$right"
+
+  for index in 0 1 2; do
+    a="${left_parts[index]:-0}"
+    b="${right_parts[index]:-0}"
+    a="${a//[!0-9]/}"
+    b="${b//[!0-9]/}"
+    if ((10#${a:-0} < 10#${b:-0})); then
+      return 0
+    fi
+    if ((10#${a:-0} > 10#${b:-0})); then
+      return 1
+    fi
+  done
+
+  if [ "$left_version" != "$left" ] && [ "$right_version" = "$right" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
+bun_version_ok() {
+  local version
+  version="$(bun --version 2>/dev/null)"
+  version="${version//[[:space:]]/}"
+  [ -n "$version" ] || return 1
+  if version_lt "$version" "$REQUIRED_BUN_VERSION"; then
+    return 1
+  fi
+  return 0
+}
+
 install_bun() {
-  if have bun; then
+  if have bun && bun_version_ok; then
     return
   fi
 
   if [ "$CHECK_ONLY" = true ]; then
+    if have bun; then
+      die "Bun $(bun --version) is older than the required $REQUIRED_BUN_VERSION. Run ./scripts/setup.sh to upgrade it."
+    fi
     die "Bun is missing. Run ./scripts/setup.sh to install it."
   fi
 
-  have curl || die "curl is required to install Bun."
-  printf 'Installing Bun...\n'
-  local installer
-  installer="$(mktemp)"
-  curl -fsSL https://bun.sh/install -o "$installer"
-  bash "$installer"
-  rm -f "$installer"
+  if have bun; then
+    printf 'Upgrading Bun to %s or newer...\n' "$REQUIRED_BUN_VERSION"
+    bun upgrade || die "Could not upgrade Bun. Install Bun $REQUIRED_BUN_VERSION or newer manually and rerun setup."
+  else
+    have curl || die "curl is required to install Bun."
+    printf 'Installing Bun...\n'
+    local installer
+    installer="$(mktemp)"
+    curl -fsSL https://bun.sh/install -o "$installer"
+    bash "$installer"
+    rm -f "$installer"
 
-  export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
-  have bun || die "Bun installed, but its executable is not on PATH. Add ~/.bun/bin to PATH and rerun setup."
+    export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
+    have bun || die "Bun installed, but its executable is not on PATH. Add ~/.bun/bin to PATH and rerun setup."
+  fi
+
+  bun_version_ok || die "Bun $(bun --version 2>/dev/null) is still older than the required $REQUIRED_BUN_VERSION. Install it manually and rerun setup."
 }
 
 install_homebrew() {
@@ -131,6 +184,7 @@ install_system_tools() {
 
 verify_tools() {
   have bun || die "bun is not available on PATH."
+  bun_version_ok || die "Bun $(bun --version 2>/dev/null) is older than the required $REQUIRED_BUN_VERSION."
   have yt-dlp || die "yt-dlp is not available on PATH."
   have ffmpeg || die "ffmpeg is not available on PATH."
 
@@ -139,45 +193,49 @@ verify_tools() {
   printf 'FFmpeg: %s\n' "$(ffmpeg -version 2>/dev/null | sed -n '1p')"
 }
 
-for arg in "$@"; do
-  case "$arg" in
-    --check) CHECK_ONLY=true ;;
-    --with-browser) WITH_BROWSER=true ;;
-    --help|-h) usage; exit 0 ;;
-    *) usage >&2; die "Unknown option: $arg" ;;
-  esac
-done
+main() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --check) CHECK_ONLY=true ;;
+      --with-browser) WITH_BROWSER=true ;;
+      --help|-h) usage; exit 0 ;;
+      *) usage >&2; die "Unknown option: $arg" ;;
+    esac
+  done
 
-export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+  # Appended, not prepended: a caller that already has these tools on PATH
+  # should keep its own copies.
+  export PATH="$PATH:$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin"
 
-install_bun
-install_system_tools
-verify_tools
+  install_bun
+  install_system_tools
+  verify_tools
 
-cd "$ROOT_DIR"
+  cd "$ROOT_DIR"
 
-if [ "$CHECK_ONLY" = true ]; then
-  [ -d node_modules ] || die "Project dependencies are missing. Run ./scripts/setup.sh."
-else
-  printf 'Installing project dependencies...\n'
-  bun install --frozen-lockfile
-fi
-
-if [ "$WITH_BROWSER" = true ]; then
-  if [ "$CHECK_ONLY" = false ]; then
-    printf 'Installing the Playwright Chromium browser...\n'
-    bunx playwright install chromium
+  if [ "$CHECK_ONLY" = true ]; then
+    [ -d node_modules ] || die "Project dependencies are missing. Run ./scripts/setup.sh."
+  else
+    printf 'Installing project dependencies...\n'
+    bun install --frozen-lockfile
   fi
-fi
 
-printf 'Running local checks...\n'
-if [ "$WITH_BROWSER" = true ]; then
-  bun run check:all
-else
-  bun run check
-fi
+  if [ "$WITH_BROWSER" = true ]; then
+    if [ "$CHECK_ONLY" = false ]; then
+      printf 'Installing the Playwright Chromium browser...\n'
+      bunx playwright install chromium
+    fi
+  fi
 
-cat <<EOF
+  printf 'Running local checks...\n'
+  if [ "$WITH_BROWSER" = true ]; then
+    bun run check:all
+  else
+    bun run check
+  fi
+
+  cat <<EOF
 
 Setup complete.
 
@@ -187,3 +245,11 @@ MCP launch: $ROOT_DIR/scripts/run-mcp.sh
 
 Provider-specific MCP commands are in docs/MCP.md.
 EOF
+}
+
+# Sourcing exposes the helpers above without running setup, so tests can call
+# them directly.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  set -euo pipefail
+  main "$@"
+fi

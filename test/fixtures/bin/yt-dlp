@@ -61,7 +61,9 @@ if (args.includes("--write-subs") || args.includes("--write-auto-subs")) {
     process.exit(0);
   }
 
-  const captionText = url.includes("empty-captions")
+  const captionText = process.env.YT_DLP_FIXTURE_ECHO_OUTPUT === "1"
+    ? `WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n${outputPath}\n`
+    : url.includes("empty-captions")
     ? "WEBVTT\nKind: captions\nLanguage: en\n"
     : `WEBVTT
 Kind: captions

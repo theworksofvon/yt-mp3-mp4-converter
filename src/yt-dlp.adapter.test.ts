@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
+  FORMAT_TIMEOUT_SECONDS,
+  METADATA_TIMEOUT_SECONDS,
   convertToMp3,
   convertToMp4,
   downloadTranscript,
   getVideoInfo,
+  pollTimeoutSeconds,
   sanitizeOutputPath,
 } from "./yt-dlp";
 import {
@@ -50,8 +53,40 @@ describe("yt-dlp adapter with a deterministic executable", () => {
     });
   });
 
-  test("rejects oversized metadata", async () => {
-    await expect(getVideoInfo(`${BASE_URL}oversized11`)).rejects.toBeInstanceOf(FileSizeError);
+  test("reads oversized metadata unless the caller downloads that format", async () => {
+    expect(await getVideoInfo(`${BASE_URL}oversized11`)).toMatchObject({
+      title: "Fixture Video: E2E Test",
+    });
+    expect(
+      await getVideoInfo(`${BASE_URL}oversized11`, { enforceFileSizeLimit: false })
+    ).toMatchObject({ title: "Fixture Video: E2E Test" });
+
+    await expect(
+      getVideoInfo(`${BASE_URL}oversized11`, { enforceFileSizeLimit: true })
+    ).rejects.toBeInstanceOf(FileSizeError);
+  });
+
+  test("keeps oversized transcripts and MP4 downloads reachable", async () => {
+    const transcriptPath = await downloadTranscript(
+      `${BASE_URL}oversized11`,
+      resolve(outputDir, "oversized-transcript")
+    );
+    expect(await Bun.file(transcriptPath).text()).toContain("shared download path works");
+
+    const mp4Path = await convertToMp4(
+      `${BASE_URL}oversized11`,
+      resolve(outputDir, "oversized-video")
+    );
+    expect(await Bun.file(mp4Path).exists()).toBe(true);
+  });
+
+  test("derives poll deadlines from the per-format download budgets", () => {
+    expect(pollTimeoutSeconds("mp3")).toBe(METADATA_TIMEOUT_SECONDS + FORMAT_TIMEOUT_SECONDS.mp3);
+    expect(pollTimeoutSeconds("mp4")).toBe(METADATA_TIMEOUT_SECONDS + FORMAT_TIMEOUT_SECONDS.mp4);
+    expect(pollTimeoutSeconds("transcript")).toBe(
+      METADATA_TIMEOUT_SECONDS + FORMAT_TIMEOUT_SECONDS.transcript
+    );
+    expect(pollTimeoutSeconds("mp4")).toBeGreaterThan(pollTimeoutSeconds("transcript"));
   });
 
   test("reports invalid metadata JSON", async () => {
@@ -86,14 +121,30 @@ describe("yt-dlp adapter with a deterministic executable", () => {
   });
 
   test("reports missing and empty captions", async () => {
-    await mkdir(resolve(outputDir, "missing"), { recursive: true });
-
     await expect(
       downloadTranscript(`${BASE_URL}no-captions`, resolve(outputDir, "missing", "transcript"))
     ).rejects.toBeInstanceOf(ConversionError);
     await expect(
       downloadTranscript(`${BASE_URL}empty-captions`, resolve(outputDir, "empty-transcript"))
     ).rejects.toBeInstanceOf(ConversionError);
+  });
+
+  test("never returns captions left behind by an earlier request", async () => {
+    const base = resolve(outputDir, "stale");
+    await Bun.write(
+      `${base}.en.vtt`,
+      "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nLeaked from another request.\n"
+    );
+
+    await expect(downloadTranscript(`${BASE_URL}no-captions`, base)).rejects.toBeInstanceOf(
+      ConversionError
+    );
+    expect(await Bun.file(`${base}.en.vtt`).exists()).toBe(true);
+
+    const transcriptPath = await downloadTranscript(`${BASE_URL}fixture12345`, base);
+    const transcript = await Bun.file(transcriptPath).text();
+    expect(transcript).not.toContain("Leaked from another request.");
+    expect(transcript).toContain("shared download path works");
   });
 
   test("preserves accessible downloader error types", async () => {

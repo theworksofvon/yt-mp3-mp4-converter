@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   await mkdir(outputDir, { recursive: true });
 
   console.log("Fetching video info...");
-  const videoInfo = await getVideoInfo(url);
+  const videoInfo = await getVideoInfo(url, { enforceFileSizeLimit: format === "mp3" });
   const basePath = `${outputDir}/${sanitizeFilename(videoInfo.title)}`;
 
   console.log(`${format === "transcript" ? "Downloading transcript" : `Downloading ${format.toUpperCase()}`}...`);

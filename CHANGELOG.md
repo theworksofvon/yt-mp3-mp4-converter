@@ -28,8 +28,15 @@ All notable changes from Ralph Wiggum Loop sessions.
 - Updated `src/index.ts` to use new Zod schemas from `src/schemas.ts`
 - Enhanced job ID validation in `/api/jobs/:jobId` endpoint
 - Enhanced job ID validation in `/downloads/:jobId` endpoint
+- Transcript, metadata, and MP4 requests are no longer refused because of the reported audio file size; the size limit now applies to MP3 downloads, which are the requests that actually fetch that stream
+- `/api/convert` returns `pollTimeoutSeconds`, and the web page enforces that server-provided deadline across polling delays and stalled responses instead of giving up after a fixed two minutes, so long MP4 conversions can finish
+- Numeric caption lines that are spoken text, such as a year, survive transcript cleanup; only real SRT cue indexes are dropped
+- `scripts/setup.sh` requires Bun 1.3.6 or newer, no longer accepts `1.3.6` prereleases for that stable minimum, upgrades an outdated Bun during normal setup, reports the version clearly under `--check`, and leaves shell options unchanged when sourced
+- `scripts/setup.sh` no longer overrides tools already on the caller's `PATH`
 
 ### Security
+- Transcript downloads use isolated per-invocation caption directories, so concurrent or stale caption files at the same requested output path cannot be consumed by another request
+- The default MCP transcript cache is a private per-user directory rather than a shared, predictable path in the system temporary directory; each tool call publishes into a new private child directory, and POSIX cache roots are restricted to owner-only access and rejected if they are symlinks or owned by another user
 - Command injection detection now covers:
   - Shell metacharacters (`;`, `|`, `` ` ``, `$`, `(`, `)`)
   - Double operators (`||`, `&&`)
@@ -168,4 +175,3 @@ All notable changes from Ralph Wiggum Loop sessions.
 - Using Bun's native server instead of @hono/node-server
 - Job storage is in-memory (consider Redis/database for production)
 - Docker images support multi-architecture builds (AMD64/ARM) for Raspberry Pi compatibility
-

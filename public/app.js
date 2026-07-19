@@ -32,23 +32,52 @@ function clearStatus() {
   statusDiv.textContent = '';
 }
 
+// Used when the server does not report a deadline. Matches the longest
+// server-side budget (MP4), so an older server is never given up on early.
+const FALLBACK_POLL_TIMEOUT_SECONDS = 960;
+const MIN_POLL_INTERVAL = 1000;
+const MAX_POLL_INTERVAL = 5000;
+
 /**
  * Poll job status until completion
  * @param {string} jobId - The job ID to poll
+ * @param {number} [timeoutSeconds] - Server-reported deadline for this format
  * @returns {Promise<Object>} - The completed job data
  */
-async function pollJobStatus(jobId) {
-  const maxAttempts = 120; // 2 minutes with 1-second intervals
-  const interval = 1000;
+async function pollJobStatus(jobId, timeoutSeconds) {
+  const budget = Number(timeoutSeconds) > 0 ? Number(timeoutSeconds) : FALLBACK_POLL_TIMEOUT_SECONDS;
+  const deadline = Date.now() + budget * 1000;
+  let interval = MIN_POLL_INTERVAL;
 
-  for (let i = 0; i < maxAttempts; i++) {
-    const response = await fetch(`${API_BASE}/api/jobs/${jobId}`);
-
-    if (!response.ok) {
-      throw new Error('Failed to check job status');
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error('Conversion timed out');
     }
 
-    const data = await response.json();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), remaining);
+    let response;
+    let data;
+
+    try {
+      response = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to check job status');
+      }
+
+      data = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('Conversion timed out');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (data.status === 'completed') {
       return data;
@@ -58,11 +87,15 @@ async function pollJobStatus(jobId) {
       throw new Error(data.error || 'Conversion failed');
     }
 
-    // Still processing, wait and retry
-    await new Promise(resolve => setTimeout(resolve, interval));
-  }
+    const waitRemaining = deadline - Date.now();
+    if (waitRemaining <= 0) {
+      throw new Error('Conversion timed out');
+    }
 
-  throw new Error('Conversion timed out');
+    // Back off gradually so long conversions do not flood the server.
+    await new Promise(resolve => setTimeout(resolve, Math.min(interval, waitRemaining)));
+    interval = Math.min(interval * 1.5, MAX_POLL_INTERVAL);
+  }
 }
 
 /**
@@ -98,12 +131,12 @@ async function handleSubmit(event) {
       throw new Error(error.error || 'Failed to start conversion');
     }
 
-    const { jobId } = await response.json();
+    const { jobId, pollTimeoutSeconds } = await response.json();
 
     // Poll for completion
     showStatus(`${format === 'transcript' ? 'Preparing transcript' : `Converting ${format.toUpperCase()}`}... This may take a moment.`, 'processing');
 
-    const job = await pollJobStatus(jobId);
+    const job = await pollJobStatus(jobId, pollTimeoutSeconds);
 
     // Show success with download link
     const downloadUrl = `${API_BASE}/downloads/${jobId}`;

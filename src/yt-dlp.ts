@@ -7,7 +7,7 @@ import {
   FileSizeError,
   parseYtDlpError,
 } from "./errors.js";
-import { readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 
 // YouTube URL validation regex
@@ -15,6 +15,24 @@ export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|s
 
 // Maximum file size in bytes (default 500MB, can be overridden via env)
 const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10) * 1024 * 1024;
+
+// yt-dlp invocation budgets, in seconds. Callers that wait on a job need these
+// to derive a deadline that outlasts the work the server is willing to do.
+export const METADATA_TIMEOUT_SECONDS = 60;
+
+export const FORMAT_TIMEOUT_SECONDS: Record<OutputFormat, number> = {
+  mp3: 300,
+  mp4: 900,
+  transcript: 120,
+};
+
+/**
+ * Longest a conversion job can legitimately take: metadata lookup plus the
+ * per-format download budget.
+ */
+export function pollTimeoutSeconds(format: OutputFormat): number {
+  return METADATA_TIMEOUT_SECONDS + FORMAT_TIMEOUT_SECONDS[format];
+}
 
 export interface VideoInfo {
   id: string;
@@ -200,10 +218,22 @@ async function spawnYtDlp(args: string[], timeoutSeconds: number = 300): Promise
   }
 }
 
+export interface VideoInfoOptions {
+  /**
+   * Reject the video when yt-dlp reports a `filesize` above the limit. Only
+   * meaningful for callers that go on to download that media stream: the
+   * reported size describes the default format, so metadata, transcript, and
+   * MP4 callers would otherwise be refused work they never attempt.
+   */
+  enforceFileSizeLimit?: boolean;
+}
+
 /**
  * Extracts video information without downloading
  */
-export async function getVideoInfo(url: string): Promise<VideoInfo> {
+export async function getVideoInfo(url: string, options: VideoInfoOptions = {}): Promise<VideoInfo> {
+  const { enforceFileSizeLimit = false } = options;
+
   if (!isValidYouTubeUrl(url)) {
     throw new InvalidUrlError(url);
   }
@@ -213,7 +243,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
   const cleanUrl = url.trim();
 
   try {
-    const result = await spawnYtDlp(["--dump-json", "--no-playlist", cleanUrl], 60);
+    const result = await spawnYtDlp(["--dump-json", "--no-playlist", cleanUrl], METADATA_TIMEOUT_SECONDS);
 
     if (!result.stdout) {
       throw parseYtDlpError(result.stderr);
@@ -222,7 +252,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
     const info = JSON.parse(result.stdout);
 
     // Check file size if available
-    if (info.filesize && info.filesize > MAX_FILE_SIZE) {
+    if (enforceFileSizeLimit && info.filesize && info.filesize > MAX_FILE_SIZE) {
       throw new FileSizeError(MAX_FILE_SIZE / (1024 * 1024), info.filesize / (1024 * 1024));
     }
 
@@ -281,7 +311,7 @@ export async function convertToMp3(url: string, outputPath: string): Promise<str
   ];
 
   try {
-    const result = await spawnYtDlp(args, 300);
+    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.mp3);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
@@ -328,8 +358,8 @@ export async function convertToMp4(url: string, outputPath: string): Promise<str
   ];
 
   try {
-    // Use longer timeout for video (900 seconds = 15 minutes) due to larger file sizes
-    const result = await spawnYtDlp(args, 900);
+    // Use longer timeout for video due to larger file sizes
+    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.mp4);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
@@ -371,7 +401,7 @@ export function captionsToPlainText(captions: string): string {
   const transcript: string[] = [];
   let skippingBlock = false;
 
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (!line) {
       skippingBlock = false;
       continue;
@@ -383,7 +413,9 @@ export function captionsToPlainText(captions: string): string {
       continue;
     }
     if (skippingBlock) continue;
-    if (/^\d+$/.test(line)) continue;
+    // An SRT cue index is only an index when a timing line follows it;
+    // otherwise it is spoken text such as a year or a countdown.
+    if (/^\d+$/.test(line) && lines[index + 1]?.includes("-->")) continue;
     if (line.includes("-->")) continue;
 
     const plain = decodeHtmlEntities(
@@ -402,13 +434,27 @@ export function captionsToPlainText(captions: string): string {
   return transcript.join("\n") + "\n";
 }
 
-async function findCaptionFile(outputPath: string): Promise<string | undefined> {
+async function listCaptionFiles(outputPath: string): Promise<string[]> {
   const directory = dirname(outputPath);
   const prefix = `${basename(outputPath)}.`;
-  const files = await readdir(directory);
 
-  return files
-    .filter((file) => file.startsWith(prefix) && /\.(vtt|srt)$/i.test(file))
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    // yt-dlp creates the output directory itself, so a missing directory just
+    // means this invocation produced nothing.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+
+  return entries.filter((file) => file.startsWith(prefix) && /\.(vtt|srt)$/i.test(file));
+}
+
+async function findCaptionFile(outputPath: string): Promise<string | undefined> {
+  const directory = dirname(outputPath);
+
+  return (await listCaptionFiles(outputPath))
     .sort((a, b) => {
       const aIsEnglish = /\.en(-|\.|$)/i.test(a);
       const bIsEnglish = /\.en(-|\.|$)/i.test(b);
@@ -427,27 +473,31 @@ export async function downloadTranscript(url: string, outputPath: string): Promi
 
   const cleanUrl = url.trim();
   const safePath = sanitizeOutputPath(outputPath);
-
-  const args = [
-    "--skip-download",
-    "--write-subs",
-    "--write-auto-subs",
-    "--sub-langs", "en.*",
-    "--sub-format", "vtt/srt",
-    "--no-playlist",
-    "-o", safePath,
-    "--no-progress",
-    cleanUrl,
-  ];
+  let workingDirectory: string | undefined;
 
   try {
-    const result = await spawnYtDlp(args, 120);
+    const outputDirectory = dirname(safePath);
+    await mkdir(outputDirectory, { recursive: true });
+    workingDirectory = await mkdtemp(`${outputDirectory}/.${basename(safePath)}-transcript-`);
+    const invocationPath = `${workingDirectory}/${basename(safePath)}`;
+    const args = [
+      "--skip-download",
+      "--write-subs",
+      "--write-auto-subs",
+      "--sub-langs", "en.*",
+      "--sub-format", "vtt/srt",
+      "--no-playlist",
+      "-o", invocationPath,
+      "--no-progress",
+      cleanUrl,
+    ];
+    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.transcript);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
     }
 
-    const captionPath = await findCaptionFile(safePath);
+    const captionPath = await findCaptionFile(invocationPath);
     if (!captionPath) {
       throw new ConversionError("transcript", "No English captions or transcript were found for this video");
     }
@@ -468,6 +518,10 @@ export async function downloadTranscript(url: string, outputPath: string): Promi
       throw error;
     }
     throw new ConversionError("transcript", error instanceof Error ? error.message : String(error));
+  } finally {
+    if (workingDirectory) {
+      await rm(workingDirectory, { recursive: true, force: true });
+    }
   }
 }
 
