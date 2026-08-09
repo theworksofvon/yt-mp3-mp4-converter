@@ -1,0 +1,38 @@
+#!/usr/bin/env bun
+
+const args = Bun.argv.slice(2);
+
+function optionValue(name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
+function fail(message: string): never {
+  console.error(message);
+  process.exit(1);
+}
+
+if (args.includes("--version")) {
+  console.log("fixture-whisper-cli-1.0.0");
+  process.exit(0);
+}
+
+if (process.env.WHISPER_FIXTURE_MODE === "fail") {
+  fail("ERROR: fixture whisper-cli failed to transcribe");
+}
+
+const input = optionValue("-f");
+if (!input) {
+  fail("ERROR: fixture expected an -f input path");
+}
+
+if (!args.includes("-otxt")) {
+  fail("ERROR: fixture expected -otxt output");
+}
+
+const transcript = process.env.WHISPER_FIXTURE_ECHO_OUTPUT === "1"
+  ? `${input}\n`
+  : "This is the local speech-to-text fixture transcript.\nNo captions were needed.\n";
+
+await Bun.write(`${input}.txt`, transcript);
+process.exit(0);

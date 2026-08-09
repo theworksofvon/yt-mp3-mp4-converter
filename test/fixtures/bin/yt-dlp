@@ -91,6 +91,15 @@ if (args.includes("-x")) {
   process.exit(0);
 }
 
+if (args.includes("bestaudio/best")) {
+  // Speech-to-text fallback downloads the audio stream with a %(ext)s
+  // template; emit a plausible m4a artifact.
+  await Bun.write(outputPath.replace("%(ext)s", "m4a"), new Uint8Array([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+  ]));
+  process.exit(0);
+}
+
 if (args.includes("--merge-output-format")) {
   await Bun.write(`${outputPath}.mp4`, new Uint8Array([
     0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,

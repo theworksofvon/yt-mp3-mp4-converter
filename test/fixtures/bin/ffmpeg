@@ -7,5 +7,14 @@ if [ "${1:-}" = "-version" ]; then
   exit 0
 fi
 
-printf 'fixture ffmpeg only supports -version\n' >&2
+# Speech-to-text fixture: the last argument is the output WAV path. Write a
+# minimal RIFF/WAVE header so the fake whisper-cli has a plausible input.
+if [ "${1:-}" = "-y" ] && [ -n "$2" ] && [ "$2" = "-hide_banner" ]; then
+  output="${@: -1}"
+  # RIFF....WAVEfmt .... 1ch 16000Hz PCM16
+  printf 'RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80\x3e\x00\x00\x00\x7d\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00' > "$output"
+  exit 0
+fi
+
+printf 'fixture ffmpeg only supports -version and the STT WAV extraction\n' >&2
 exit 1

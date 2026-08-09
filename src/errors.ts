@@ -28,12 +28,8 @@ export class ConverterError extends Error {
  * Invalid URL error - URL is not a valid YouTube URL
  */
 export class InvalidUrlError extends ConverterError {
-  constructor(url: string) {
-    super(
-      `Invalid YouTube URL: ${url}`,
-      "INVALID_URL",
-      400
-    );
+  constructor(url: string, message: string = `Invalid YouTube URL: ${url}`) {
+    super(message, "INVALID_URL", 400);
     this.name = "InvalidUrlError";
   }
 }
@@ -94,6 +90,28 @@ export class FileSizeError extends ConverterError {
       413
     );
     this.name = "FileSizeError";
+  }
+}
+
+/**
+ * Speech-to-text component (whisper-cli, FFmpeg, or a whisper model) is
+ * missing or cannot be started. Maps to the stable `component_missing`
+ * category.
+ */
+export class WhisperUnavailableError extends ConverterError {
+  constructor(reason: string) {
+    super(`Speech-to-text is not available: ${reason}`, "WHISPER_NOT_AVAILABLE", 500);
+    this.name = "WhisperUnavailableError";
+  }
+}
+
+/**
+ * Speech-to-text ran but produced no readable transcript.
+ */
+export class TranscriptionError extends ConverterError {
+  constructor(reason: string) {
+    super(`Speech-to-text transcription failed: ${reason}`, "TRANSCRIPTION_FAILED", 500);
+    this.name = "TranscriptionError";
   }
 }
 
