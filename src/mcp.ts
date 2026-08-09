@@ -185,7 +185,7 @@ server.registerTool(
   "get_video_transcript",
   {
     title: "Get Video Transcript",
-    description: "Fetch the transcript for any video URL, using existing captions or falling back to local speech-to-text when none exist. Accepts YouTube, Vimeo, Twitch, and other sites yt-dlp supports.",
+    description: "Fetch the transcript for any video URL or local media file, using existing captions or falling back to local speech-to-text when none exist. Accepts YouTube, Vimeo, Twitch, and other sites yt-dlp supports.",
     inputSchema: {
       url: z.string().min(1).describe("Video URL"),
       includeMetadata: z.boolean().default(true).describe("Include video metadata before the transcript"),
