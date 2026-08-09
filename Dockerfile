@@ -49,9 +49,18 @@ RUN apt-get update && apt-get install -y \
 RUN python3 -m venv /opt/yt-dlp \
     && /opt/yt-dlp/bin/pip install --no-cache-dir yt-dlp
 
-# Bake the default whisper model into the image.
+# Bake the default whisper model into the image. Hugging Face rate-limits
+# anonymous CI IPs, so treat the download as best-effort: retry a few times and
+# continue without a baked model if it still fails. Speech-to-text then needs a
+# model mounted at /models or WHISPER_MODEL_PATH at runtime; every other
+# transcript path works without it.
 RUN mkdir -p /models \
-    && curl -fL https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin -o /models/ggml-base.en.bin
+    && (curl -fL --retry 5 --retry-delay 5 --retry-all-errors \
+        https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin \
+        -o /models/ggml-base.en.bin.tmp \
+        && mv /models/ggml-base.en.bin.tmp /models/ggml-base.en.bin) \
+    || { rm -f /models/ggml-base.en.bin.tmp; \
+         echo "Whisper model download skipped (rate limited). Mount one at /models or set WHISPER_MODEL_PATH." >&2; }
 
 # Create download directory with proper permissions
 RUN mkdir -p /tmp/yt-converter-downloads
