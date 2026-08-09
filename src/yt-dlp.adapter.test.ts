@@ -187,6 +187,40 @@ describe("yt-dlp adapter with a deterministic executable", () => {
     await expect(getVideoInfo("https://vimeo.com/123")).rejects.toBeInstanceOf(InvalidUrlError);
   });
 
+  test("rejects any-source URLs that target private or loopback hosts", async () => {
+    for (const url of [
+      "http://10.0.0.5/video.mp4",
+      "http://192.168.1.10/video",
+      "http://127.0.0.1/secret",
+      "http://169.254.169.254/latest/meta-data",
+      "http://[::1]/video",
+    ]) {
+      await expect(getVideoInfo(url, { allowAnySource: true })).rejects.toBeInstanceOf(InvalidUrlError);
+      await expect(downloadTranscript(url, resolve(outputDir, "denied"))).rejects.toBeInstanceOf(
+        InvalidUrlError,
+      );
+    }
+
+    // Public IP-literal hosts remain reachable.
+    expect(await getVideoInfo("http://8.8.8.8/video", { allowAnySource: true })).toMatchObject({
+      title: "Fixture Video: E2E Test",
+    });
+  });
+
+  test("accepts local file paths that contain shell metacharacters", async () => {
+    const localVideo = resolve(outputDir, "song (ripped) $pecial.mp4");
+    await Bun.write(localVideo, "fake-video-bytes");
+
+    const transcriptPath = await downloadTranscript(localVideo, resolve(outputDir, "special-transcript"));
+    expect(await Bun.file(transcriptPath).text()).toBe(STT_TRANSCRIPT);
+  });
+
+  test("propagates downloader rate limits through the transcript path", async () => {
+    await expect(
+      downloadTranscript(`${BASE_URL}rate-limited`, resolve(outputDir, "rate-limit"), { sttFallback: false }),
+    ).rejects.toBeInstanceOf(RateLimitError);
+  });
+
   test("never returns captions left behind by an earlier request", async () => {
     const base = resolve(outputDir, "stale");
     await Bun.write(

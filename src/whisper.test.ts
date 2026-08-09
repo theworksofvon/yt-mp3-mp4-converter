@@ -22,13 +22,22 @@ beforeAll(async () => {
   modelPath = resolve(tempDir, "fixture-model.bin");
   await Bun.write(modelPath, "fixture-model-bytes");
 
-  for (const key of ["WHISPER_CLI_PATH", "FFMPEG_PATH", "WHISPER_MODEL_PATH", "WHISPER_FIXTURE_MODE"] as const) {
+  for (const key of [
+    "WHISPER_CLI_PATH",
+    "FFMPEG_PATH",
+    "WHISPER_MODEL_PATH",
+    "WHISPER_FIXTURE_MODE",
+    "WHISPER_FIXTURE_ECHO_OUTPUT",
+    "FFMPEG_FIXTURE_MODE",
+  ] as const) {
     originalEnv[key] = process.env[key];
   }
   process.env.WHISPER_CLI_PATH = FIXTURE_WHISPER_CLI;
   process.env.FFMPEG_PATH = FIXTURE_FFMPEG;
   process.env.WHISPER_MODEL_PATH = modelPath;
   delete process.env.WHISPER_FIXTURE_MODE;
+  delete process.env.WHISPER_FIXTURE_ECHO_OUTPUT;
+  delete process.env.FFMPEG_FIXTURE_MODE;
 });
 
 afterAll(async () => {
@@ -118,12 +127,46 @@ describe("whisper speech-to-text engine", () => {
     }
   });
 
-  test("reports a missing output as a transcription error", async () => {
+  test("reports a missing transcript file as a transcription error", async () => {
+    const previous = process.env.WHISPER_FIXTURE_MODE;
+    process.env.WHISPER_FIXTURE_MODE = "no-file";
+    try {
+      await expect(transcribeWav(resolve(tempDir, "speech-no-file.wav"))).rejects.toBeInstanceOf(
+        TranscriptionError,
+      );
+    } finally {
+      process.env.WHISPER_FIXTURE_MODE = previous;
+    }
+  });
+
+  test("reports an empty transcript as a transcription error", async () => {
+    const previous = process.env.WHISPER_FIXTURE_MODE;
+    process.env.WHISPER_FIXTURE_MODE = "empty";
+    try {
+      await expect(transcribeWav(resolve(tempDir, "speech-empty.wav"))).rejects.toBeInstanceOf(
+        TranscriptionError,
+      );
+    } finally {
+      process.env.WHISPER_FIXTURE_MODE = previous;
+    }
+  });
+
+  test("reports an ffmpeg failure as a transcription error", async () => {
+    const previous = process.env.FFMPEG_FIXTURE_MODE;
+    process.env.FFMPEG_FIXTURE_MODE = "fail";
+    try {
+      await expect(
+        extractWav(resolve(tempDir, "source.mp4"), resolve(tempDir, "out.wav")),
+      ).rejects.toBeInstanceOf(TranscriptionError);
+    } finally {
+      process.env.FFMPEG_FIXTURE_MODE = previous;
+    }
+  });
+
+  test("echoes the input path as the transcript when asked", async () => {
     const previous = process.env.WHISPER_FIXTURE_ECHO_OUTPUT;
     process.env.WHISPER_FIXTURE_ECHO_OUTPUT = "1";
     try {
-      // The echo fixture writes the input path as the transcript, which is
-      // non-empty, so use an input whose transcript would still be written.
       const result = await transcribeWav(resolve(tempDir, "speech.wav"));
       expect(result.trim()).toContain("speech.wav");
     } finally {

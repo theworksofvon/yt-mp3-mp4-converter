@@ -1,5 +1,13 @@
 #!/usr/bin/env bun
 
+// Deterministic whisper-cli stand-in for tests. It parses -f/<input> and
+// -otxt exactly like the real CLI and writes `<input>.txt` with fixed text.
+// Environment knobs:
+//   WHISPER_FIXTURE_MODE=no-file  exit 0 without writing a transcript file
+//   WHISPER_FIXTURE_MODE=empty    write an empty transcript file
+//   WHISPER_FIXTURE_MODE=fail     exit nonzero with an error on stderr
+//   WHISPER_FIXTURE_ECHO_OUTPUT=1 write the input path as the transcript text
+
 const args = Bun.argv.slice(2);
 
 function optionValue(name: string): string | undefined {
@@ -28,6 +36,15 @@ if (!input) {
 
 if (!args.includes("-otxt")) {
   fail("ERROR: fixture expected -otxt output");
+}
+
+if (process.env.WHISPER_FIXTURE_MODE === "no-file") {
+  process.exit(0);
+}
+
+if (process.env.WHISPER_FIXTURE_MODE === "empty") {
+  await Bun.write(`${input}.txt`, "");
+  process.exit(0);
 }
 
 const transcript = process.env.WHISPER_FIXTURE_ECHO_OUTPUT === "1"
