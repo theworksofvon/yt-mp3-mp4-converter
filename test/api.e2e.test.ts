@@ -70,6 +70,9 @@ beforeAll(async () => {
       ...process.env,
       PATH: `${FIXTURE_BIN_DIR}${delimiter}${process.env.PATH || ""}`,
       YT_DLP_PATH: FIXTURE_YT_DLP,
+      WHISPER_CLI_PATH: resolve(FIXTURE_BIN_DIR, "whisper-cli"),
+      FFMPEG_PATH: resolve(FIXTURE_BIN_DIR, "ffmpeg"),
+      WHISPER_MODEL_PATH: resolve(FIXTURE_BIN_DIR, "fixture-model.bin"),
       PORT: String(PORT),
       DOWNLOAD_DIR: outputDir,
     },
@@ -121,6 +124,17 @@ describe("web API end to end", () => {
     expect(download.headers.get("content-type")).toContain("text/plain");
     expect(download.headers.get("content-disposition")).toContain("Fixture_Video_E2E_Test.txt");
     expect(await download.text()).toContain("shared download path works");
+  });
+
+  test("runs a transcript job that falls back to speech-to-text", async () => {
+    const { jobId } = await createJob("transcript", "no-captions");
+    expect(await waitForJob(jobId)).toMatchObject({
+      status: "completed",
+      format: "transcript",
+    });
+
+    const download = await fetch(`${ORIGIN}/downloads/${jobId}`);
+    expect(await download.text()).toContain("No captions were needed");
   });
 
   test.each([
