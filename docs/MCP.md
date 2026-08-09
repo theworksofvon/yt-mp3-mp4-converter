@@ -13,6 +13,8 @@ The MCP entrypoint is `src/mcp.ts`. It calls the same `getVideoInfo()` and `down
 
 The tools are declared read-only, but they contact YouTube and cache caption files locally. No API key is required.
 
+The shared transcript engine behind the CLI and web app can fall back to local speech-to-text (whisper.cpp) for videos without captions; the MCP tools above return captions only.
+
 ## Install from a source checkout
 
 From the repository root:
@@ -153,7 +155,7 @@ bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 
 - Only English caption tracks matching `en.*` are requested.
 - Manual captions are used when available; auto-generated captions are also supported.
-- Videos without accessible English captions cannot be transcribed from their audio.
+- `get_youtube_transcript` returns captions only: videos without accessible English captions produce no transcript through this tool. The shared CLI and web transcript path can instead fall back to local speech-to-text, but the MCP tool does not transcribe audio.
 - Private, deleted, age-restricted, region-blocked, and rate-limited videos may fail.
 - Long transcripts can consume substantial model context.
 - Plain-text transcript files remain in the transcript cache directory until the operating system or user removes them; temporary VTT/SRT caption files are cleaned up after each request.
@@ -189,7 +191,7 @@ Check the URL in the CLI to separate client configuration from YouTube availabil
 bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-If the CLI reports that no English captions were found, the MCP server will return the same result because both use the same implementation.
+If the CLI reports that no English captions were found, the MCP server will return the same result because both use the same captions path; the CLI transcript command may instead fall back to local speech-to-text, which the MCP tool does not.
 
 ### Debug output corrupts MCP messages
 

@@ -10,6 +10,20 @@ The implementation requests existing English manual captions and automatically g
 
 Migration tests: `TI-ADAPTER-08`, `TI-CLI-04`, `TI-MCP-01`, `TI-GOLDEN-01`.
 
+### Speech-to-text fallback (`STT-01`)
+
+A TypeScript change after this snapshot added the explicit capability the
+promise anticipated. When a URL has no usable English captions, or the input is
+a local media file, the shared transcript path extracts mono 16 kHz audio with
+FFmpeg and transcribes it locally with whisper.cpp (`whisper-cli`). Missing
+`whisper-cli` or the model maps to a `component_missing` category; a failed or
+empty transcription maps to `transcription_failed`. Caption-first behavior,
+filename handling, and the captions-only YouTube MCP tool are unchanged. The
+Rust rewrite should reproduce this same fallback rather than regressing to
+captions-only.
+
+Migration tests: `TI-ADAPTER-12`–`TI-ADAPTER-14`, `TI-GOLDEN-01`.
+
 ## Legacy TypeScript CLI
 
 ### Invocation and input (`CLI-01`)

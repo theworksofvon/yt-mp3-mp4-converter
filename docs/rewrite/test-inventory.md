@@ -54,6 +54,9 @@ Parameterized cases are listed by variant so none are hidden by a single `test.e
 | `TI-ADAPTER-09` | never returns captions left by an earlier request | `rust-adapter` | Per-call temporary isolation and stale-file nonselection. |
 | `TI-ADAPTER-10` | preserves accessible downloader error types | `rust-adapter` | Private and rate-limit stderr retain stable categories. |
 | `TI-ADAPTER-11` | sanitizes output filenames and rejects traversal | `rust-adapter` | Filesystem adapter rejects unsafe server paths. |
+| `TI-ADAPTER-12` | falls back to speech-to-text when a URL has no captions | `rust-adapter` | Caption absence triggers the whisper fallback and notifies the caller. |
+| `TI-ADAPTER-13` | transcribes a local video file with speech-to-text | `rust-adapter` | Local file input bypasses captions and produces a transcript. |
+| `TI-ADAPTER-14` | reads metadata for non-YouTube sources only when allowed | `rust-adapter` | `allowAnySource` accepts non-YouTube URLs and local files; otherwise rejected. |
 
 ## `src/yt-dlp.test.ts`
 
@@ -129,7 +132,8 @@ This table is the Phase 0 ownership check. Every externally visible contract sec
 
 | Contract | Migration owner | Required assertion |
 | --- | --- | --- |
-| `PRODUCT-01` | `TI-ADAPTER-08`, `TI-GOLDEN-01` | Caption absence fails as `captions_unavailable`; no audio/STT path is attempted. |
+| `PRODUCT-01` | `TI-ADAPTER-08`, `TI-GOLDEN-01` | Caption absence fails as `captions_unavailable` when the caller disables the STT fallback. |
+| `STT-01` | `TI-ADAPTER-12`–`TI-ADAPTER-14`, `TI-GOLDEN-01` | Caption-less URLs and local files transcribe locally; missing components map to `component_missing`. |
 | `CLI-01` | `TI-CLI-01`–`TI-CLI-04` | Accepted commands, usage, prompting, trimming, ignored extras, and exit behavior. Add the missing usage/prompt variants when the Rust CLI begins. |
 | `CLI-02` | `TI-CLI-01`–`TI-CLI-03`, `TI-GOLDEN-01` | Exact status streams, artifacts, filenames, and success exit. |
 | `CLI-03` | `TI-CLI-04`, `TI-GOLDEN-01` | Invalid URL, missing captions, generic downloader failure, stream separation, and legacy exit `1`. |
