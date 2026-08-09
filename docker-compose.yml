@@ -13,7 +13,9 @@ services:
       # Optional: Max file size in MB
       - MAX_FILE_SIZE_MB=500
     volumes:
-      # Persist downloads to host (optional)
+      # Persist downloads to host (optional). The whisper model is baked into
+      # the image at /models (WHISPER_MODEL_PATH); do not mount a directory
+      # over /models or an empty volume would hide the model.
       - ./downloads:/tmp/yt-converter-downloads
     restart: unless-stopped
     healthcheck:
