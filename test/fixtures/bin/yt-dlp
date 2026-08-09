@@ -33,6 +33,10 @@ if (url.includes("rate-limited")) {
   fail("ERROR: Too many requests; rate limit reached");
 }
 
+if (url.includes("downloader-failure")) {
+  fail("ERROR: fixture downloader failed unexpectedly");
+}
+
 if (args.includes("--dump-json")) {
   if (url.includes("invalid-json")) {
     console.log("{not-json");
@@ -83,6 +87,15 @@ This proves the shared download path works.
 if (args.includes("-x")) {
   await Bun.write(`${outputPath}.mp3`, new Uint8Array([
     0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00,
+  ]));
+  process.exit(0);
+}
+
+if (args.includes("bestaudio/best")) {
+  // Speech-to-text fallback downloads the audio stream with a %(ext)s
+  // template; emit a plausible m4a artifact.
+  await Bun.write(outputPath.replace("%(ext)s", "m4a"), new Uint8Array([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
   ]));
   process.exit(0);
 }

@@ -2,6 +2,10 @@
 node_modules
 /downloads/
 
+# local whisper speech-to-text artifacts
+/models/
+/test.mp4
+
 # output
 out
 dist

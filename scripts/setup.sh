@@ -18,6 +18,9 @@ Options:
   --with-browser  Install Chromium and run the browser end-to-end test.
   --help          Show this help text.
 
+On macOS, setup also installs whisper-cli for optional local speech-to-text and
+downloads the default model. WHISPER_MODEL and WHISPER_MODEL_DIR select the model.
+
 Supported automatic system package installation:
   - macOS with Homebrew
   - Debian/Ubuntu with apt-get
@@ -191,6 +194,70 @@ verify_tools() {
   printf 'Bun: %s\n' "$(bun --version)"
   printf 'yt-dlp: %s\n' "$(yt-dlp --version)"
   printf 'FFmpeg: %s\n' "$(ffmpeg -version 2>/dev/null | sed -n '1p')"
+  printf 'whisper-cli: %s\n' "$(whisper_cli_version)"
+}
+
+# Matches the target written by scripts/download-whisper-model.sh, so --check
+# and the download agree on where the model lives.
+whisper_model_path() {
+  printf '%s\n' "${WHISPER_MODEL_DIR:-$ROOT_DIR/models}/ggml-${WHISPER_MODEL:-base.en}.bin"
+}
+
+whisper_cli_version() {
+  if have whisper-cli; then
+    local version
+    version="$(whisper-cli --version 2>&1 || true)"
+    printf '%s\n' "${version%%$'\n'*}"
+  else
+    printf 'not found (speech-to-text disabled)\n'
+  fi
+}
+
+ensure_whisper_model() {
+  local model_path
+  model_path="$(whisper_model_path)"
+
+  if [ "$CHECK_ONLY" = true ]; then
+    if [ -f "$model_path" ]; then
+      printf 'Whisper model: present at %s\n' "$model_path"
+    else
+      printf 'Whisper model: not found at %s. Run ./scripts/setup.sh to download it.\n' "$model_path"
+    fi
+    return
+  fi
+
+  printf 'Ensuring the Whisper model is present...\n'
+  "$ROOT_DIR/scripts/download-whisper-model.sh"
+}
+
+ensure_whisper() {
+  if have whisper-cli; then
+    ensure_whisper_model
+    return
+  fi
+
+  if [ "$CHECK_ONLY" = true ]; then
+    return
+  fi
+
+  case "$(uname -s)" in
+    Darwin)
+      install_homebrew
+      printf 'Installing whisper.cpp for speech-to-text...\n'
+      brew install whisper-cpp || die "Homebrew could not install whisper-cpp. Run 'brew doctor', fix the reported permissions, and rerun setup."
+      ;;
+    Linux)
+      printf 'whisper-cli is not installed; speech-to-text is optional.\n'
+      printf 'Enable it by building whisper.cpp (https://github.com/ggml-org/whisper.cpp) or using its Docker image.\n'
+      ;;
+    *)
+      printf 'whisper-cli is not installed; speech-to-text is optional. Install it manually to enable local transcription.\n'
+      ;;
+  esac
+
+  if have whisper-cli; then
+    ensure_whisper_model
+  fi
 }
 
 main() {
@@ -211,6 +278,7 @@ main() {
   install_bun
   install_system_tools
   verify_tools
+  ensure_whisper
 
   cd "$ROOT_DIR"
 
@@ -243,6 +311,7 @@ Web app:    bun run start
 CLI:        bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 MCP launch: $ROOT_DIR/scripts/run-mcp.sh
 
+Videos without captions are transcribed locally via whisper.cpp.
 Provider-specific MCP commands are in docs/MCP.md.
 EOF
 }

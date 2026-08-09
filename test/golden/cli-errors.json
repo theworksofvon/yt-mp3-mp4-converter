@@ -1,0 +1,14 @@
+[
+  {
+    "scenario": "invalid_source",
+    "stdout": "Fetching video info...\n",
+    "stderr": "Invalid source: not-a-real-source\n",
+    "exitCode": 1
+  },
+  {
+    "scenario": "downloader_failure",
+    "stdout": "Fetching video info...\n",
+    "stderr": "Download failed: ERROR: fixture downloader failed unexpectedly\n\n",
+    "exitCode": 1
+  }
+]

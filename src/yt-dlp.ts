@@ -5,13 +5,18 @@ import {
   NetworkTimeoutError,
   ConversionError,
   FileSizeError,
+  RateLimitError,
+  TranscriptionError,
+  WhisperUnavailableError,
   parseYtDlpError,
 } from "./errors.js";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { isIP } from "node:net";
+import { basename, dirname, extname, resolve } from "node:path";
+import { transcribeAudioFile } from "./whisper.js";
 
 // YouTube URL validation regex
-export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/;
+export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]+/;
 
 // Maximum file size in bytes (default 500MB, can be overridden via env)
 const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10) * 1024 * 1024;
@@ -20,10 +25,17 @@ const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10)
 // to derive a deadline that outlasts the work the server is willing to do.
 export const METADATA_TIMEOUT_SECONDS = 60;
 
+// Caption download is quick even for long videos; the transcript budget is
+// dominated by the speech-to-text fallback, which runs roughly in real time.
+export const CAPTIONS_TIMEOUT_SECONDS = 120;
+export const AUDIO_DOWNLOAD_TIMEOUT_SECONDS = 900;
+
 export const FORMAT_TIMEOUT_SECONDS: Record<OutputFormat, number> = {
   mp3: 300,
   mp4: 900,
-  transcript: 120,
+  // One full speech-to-text pass plus its setup steps fits inside two hours;
+  // the poll deadline below derives from this so clients do not give up early.
+  transcript: 7200,
 };
 
 /**
@@ -226,21 +238,141 @@ export interface VideoInfoOptions {
    * MP4 callers would otherwise be refused work they never attempt.
    */
   enforceFileSizeLimit?: boolean;
+  /**
+   * Accept any http(s) URL or an existing local file path, not just YouTube.
+   * Used by the transcript surfaces that also transcribe regular videos.
+   */
+  allowAnySource?: boolean;
+}
+
+export type SourceKind = "youtube" | "url" | "local";
+
+function looksLikeHttpUrl(input: string): boolean {
+  try {
+    const url = new URL(input);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHttpUrl(input: string): string {
+  return /^https?:\/\//i.test(input) ? input : `https://${input}`;
+}
+
+async function isExistingFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rejects http(s) URLs whose literal host is a loopback, private, link-local,
+ * or otherwise non-public IP. Hostname-based SSRF (e.g. a DNS name resolving
+ * to an internal address) remains a documented limitation of the any-source
+ * transcript path.
+ */
+function isDeniedTargetHost(urlString: string): boolean {
+  let host: string;
+  try {
+    host = new URL(urlString).hostname;
+  } catch {
+    return true;
+  }
+  if (!host) return true;
+
+  // URL.hostname keeps the brackets around IPv6 literals; isIP() needs them off.
+  const ipHost = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+
+  if (isIP(ipHost) === 4) {
+    const [a = 0, b = 0] = ipHost.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+
+  if (isIP(ipHost) === 6) {
+    const lower = ipHost.toLowerCase();
+    if (lower === "::" || lower === "::1") return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7
+    if (/^fe[89ab]/.test(lower)) return true; // fe80::/10
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Classifies an input as a YouTube URL, another http(s) URL, or a local file
+ * path. Anything that is none of those is rejected as an invalid source.
+ */
+export async function resolveSourceKind(input: string): Promise<SourceKind> {
+  const candidate = input.trim();
+  if (!candidate) {
+    throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
+  }
+
+  if (looksLikeHttpUrl(candidate)) {
+    if (hasCommandInjection(candidate)) {
+      throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
+    }
+    if (!isValidYouTubeUrl(candidate) && isDeniedTargetHost(candidate)) {
+      throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
+    }
+    return isValidYouTubeUrl(candidate) ? "youtube" : "url";
+  }
+
+  if (isValidYouTubeUrl(candidate)) {
+    // isValidYouTubeUrl already rejects command injection.
+    return "youtube";
+  }
+
+  // Local files are passed to FFmpeg as a single array argument, so shell
+  // metacharacters in a real file path are not an injection vector here.
+  if (await isExistingFile(candidate)) {
+    return "local";
+  }
+
+  throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
 }
 
 /**
  * Extracts video information without downloading
  */
 export async function getVideoInfo(url: string, options: VideoInfoOptions = {}): Promise<VideoInfo> {
-  const { enforceFileSizeLimit = false } = options;
+  const { enforceFileSizeLimit = false, allowAnySource = false } = options;
+  const kind = await resolveSourceKind(url);
 
-  if (!isValidYouTubeUrl(url)) {
+  if (kind === "local") {
+    if (!allowAnySource) {
+      throw new InvalidUrlError(url);
+    }
+    // Local files have no extractor metadata; derive a stable identity from
+    // the filename so the shared transcript surfaces can name the output.
+    const path = resolve(url);
+    const stem = sanitizeFilename(basename(path, extname(path)));
+    return {
+      id: stem,
+      title: stem,
+      duration: 0,
+      thumbnail: "",
+      uploader: "",
+      upload_date: "",
+    };
+  }
+
+  if (kind !== "youtube" && !allowAnySource) {
     throw new InvalidUrlError(url);
   }
 
   // Sanitize URL - prevent command injection by passing as separate argument
   // (Bun.spawn with array arguments handles this safely)
-  const cleanUrl = url.trim();
+  const cleanUrl = normalizeHttpUrl(url.trim());
 
   try {
     const result = await spawnYtDlp(["--dump-json", "--no-playlist", cleanUrl], METADATA_TIMEOUT_SECONDS);
@@ -256,13 +388,15 @@ export async function getVideoInfo(url: string, options: VideoInfoOptions = {}):
       throw new FileSizeError(MAX_FILE_SIZE / (1024 * 1024), info.filesize / (1024 * 1024));
     }
 
+    // Non-YouTube extractors may not report every field; normalize to empty
+    // strings so the shared VideoInfo shape stays complete.
     return {
-      id: info.id,
-      title: info.title,
-      duration: info.duration,
-      thumbnail: info.thumbnail,
-      uploader: info.uploader,
-      upload_date: info.upload_date,
+      id: info.id ?? "",
+      title: info.title ?? "",
+      duration: typeof info.duration === "number" ? info.duration : 0,
+      thumbnail: info.thumbnail ?? "",
+      uploader: info.uploader ?? "",
+      upload_date: info.upload_date ?? "",
     };
   } catch (error) {
     if (error instanceof InvalidUrlError || error instanceof VideoNotAccessibleError ||
@@ -463,16 +597,95 @@ async function findCaptionFile(outputPath: string): Promise<string | undefined> 
     .map((file) => `${directory}/${file}`)[0];
 }
 
+export interface TranscriptOptions {
+  /**
+   * When true, a URL without usable English captions falls back to local
+   * speech-to-text. Local file inputs always use speech-to-text. Caption-only
+   * surfaces (such as the YouTube MCP tool) pass false to preserve their
+   * contract.
+   */
+  sttFallback?: boolean;
+  /** Called once before a captions-missing URL begins speech-to-text. */
+  onSttFallback?: () => void;
+}
+
 /**
- * Downloads available YouTube captions and saves them as a plain-text transcript.
+ * Finds the media file yt-dlp produced for a caller-supplied base path whose
+ * template ended in `%(ext)s`.
  */
-export async function downloadTranscript(url: string, outputPath: string): Promise<string> {
-  if (!isValidYouTubeUrl(url)) {
-    throw new InvalidUrlError(url);
+async function findDownloadedMedia(outputPath: string): Promise<string | undefined> {
+  const directory = dirname(outputPath);
+  const prefix = `${basename(outputPath)}.`;
+
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    // yt-dlp creates the output directory itself, so a missing directory just
+    // means this invocation produced nothing.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
   }
 
-  const cleanUrl = url.trim();
+  const file = entries.find(
+    (name) => name.startsWith(prefix) && !name.endsWith(".part") && !name.endsWith(".ytdl"),
+  );
+  return file ? `${directory}/${file}` : undefined;
+}
+
+/**
+ * Downloads just the audio stream for a URL into a unique, caller-provided
+ * output base path and returns the absolute path yt-dlp created. Used as the
+ * first step of the speech-to-text fallback.
+ */
+export async function downloadAudioForStt(url: string, outputPath: string): Promise<string> {
   const safePath = sanitizeOutputPath(outputPath);
+  const args = [
+    "-f", "bestaudio/best",
+    "--no-playlist",
+    // Keep the audio download bounded like the MP3 path so a handful of
+    // transcript jobs cannot exhaust disk.
+    "--max-filesize", `${MAX_FILE_SIZE}`,
+    "-o", `${safePath}.%(ext)s`,
+    "--no-progress",
+    "--newline",
+    normalizeHttpUrl(url.trim()),
+  ];
+
+  const result = await spawnYtDlp(args, AUDIO_DOWNLOAD_TIMEOUT_SECONDS);
+  if (result.exitCode !== 0) {
+    throw parseYtDlpError(result.stderr);
+  }
+
+  const audioPath = await findDownloadedMedia(safePath);
+  if (!audioPath) {
+    throw new ConversionError("transcript", "Audio download produced no file");
+  }
+  return audioPath;
+}
+
+/**
+ * Downloads available captions, or falls back to local speech-to-text, and
+ * saves the result as a plain-text transcript. Accepts YouTube and other
+ * http(s) URLs, as well as local media files.
+ */
+export async function downloadTranscript(
+  input: string,
+  outputPath: string,
+  options: TranscriptOptions = {},
+): Promise<string> {
+  const { sttFallback = true, onSttFallback } = options;
+  const kind = await resolveSourceKind(input);
+
+  if (kind === "local") {
+    if (!sttFallback) {
+      throw new ConversionError("transcript", "Local video files have no captions; speech-to-text is disabled");
+    }
+    return transcribeAudioFile(input, `${outputPath}.txt`);
+  }
+
+  const safePath = sanitizeOutputPath(outputPath);
+  const cleanUrl = normalizeHttpUrl(input.trim());
   let workingDirectory: string | undefined;
 
   try {
@@ -491,30 +704,38 @@ export async function downloadTranscript(url: string, outputPath: string): Promi
       "--no-progress",
       cleanUrl,
     ];
-    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.transcript);
+    const result = await spawnYtDlp(args, CAPTIONS_TIMEOUT_SECONDS);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
     }
 
     const captionPath = await findCaptionFile(invocationPath);
-    if (!captionPath) {
+    if (captionPath) {
+      const rawCaptions = await Bun.file(captionPath).text();
+      const transcript = captionsToPlainText(rawCaptions);
+      if (transcript.trim()) {
+        const finalPath = `${safePath}.txt`;
+        await Bun.write(finalPath, transcript);
+        return finalPath;
+      }
+      if (!sttFallback) {
+        throw new ConversionError("transcript", "Downloaded captions did not contain readable transcript text");
+      }
+    }
+
+    if (!sttFallback) {
       throw new ConversionError("transcript", "No English captions or transcript were found for this video");
     }
 
-    const rawCaptions = await Bun.file(captionPath).text();
-    const transcript = captionsToPlainText(rawCaptions);
-    if (!transcript.trim()) {
-      throw new ConversionError("transcript", "Downloaded captions did not contain readable transcript text");
-    }
-
-    const finalPath = `${safePath}.txt`;
-    await Bun.write(finalPath, transcript);
-    return finalPath;
+    onSttFallback?.();
+    const audioPath = await downloadAudioForStt(cleanUrl, resolve(workingDirectory, "audio"));
+    return await transcribeAudioFile(audioPath, `${safePath}.txt`);
   } catch (error) {
     if (error instanceof InvalidUrlError || error instanceof VideoNotAccessibleError ||
         error instanceof NetworkTimeoutError || error instanceof FileSizeError ||
-        error instanceof ConversionError) {
+        error instanceof RateLimitError || error instanceof ConversionError ||
+        error instanceof TranscriptionError || error instanceof WhisperUnavailableError) {
       throw error;
     }
     throw new ConversionError("transcript", error instanceof Error ? error.message : String(error));

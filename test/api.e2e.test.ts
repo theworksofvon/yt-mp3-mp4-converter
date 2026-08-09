@@ -70,6 +70,9 @@ beforeAll(async () => {
       ...process.env,
       PATH: `${FIXTURE_BIN_DIR}${delimiter}${process.env.PATH || ""}`,
       YT_DLP_PATH: FIXTURE_YT_DLP,
+      WHISPER_CLI_PATH: resolve(FIXTURE_BIN_DIR, "whisper-cli"),
+      FFMPEG_PATH: resolve(FIXTURE_BIN_DIR, "ffmpeg"),
+      WHISPER_MODEL_PATH: resolve(FIXTURE_BIN_DIR, "fixture-model.bin"),
       PORT: String(PORT),
       DOWNLOAD_DIR: outputDir,
     },
@@ -123,6 +126,17 @@ describe("web API end to end", () => {
     expect(await download.text()).toContain("shared download path works");
   });
 
+  test("runs a transcript job that falls back to speech-to-text", async () => {
+    const { jobId } = await createJob("transcript", "no-captions");
+    expect(await waitForJob(jobId)).toMatchObject({
+      status: "completed",
+      format: "transcript",
+    });
+
+    const download = await fetch(`${ORIGIN}/downloads/${jobId}`);
+    expect(await download.text()).toContain("No captions were needed");
+  });
+
   test.each([
     ["mp3", "audio/mpeg", "ID3"],
     ["mp4", "video/mp4", "ftyp"],
@@ -145,14 +159,14 @@ describe("web API end to end", () => {
 
     expect(mp3.pollTimeoutSeconds).toBe(360);
     expect(mp4.pollTimeoutSeconds).toBe(960);
-    expect(transcript.pollTimeoutSeconds).toBe(180);
+    expect(transcript.pollTimeoutSeconds).toBe(7260);
   });
 
   test("returns validation, missing-job, incomplete-job, and conversion errors", async () => {
     const invalid = await fetch(`${ORIGIN}/api/convert`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: "https://example.com", format: "transcript" }),
+      body: JSON.stringify({ url: "not a source", format: "transcript" }),
     });
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toMatchObject({ code: "VALIDATION_ERROR" });

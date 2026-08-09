@@ -8,7 +8,7 @@ test("a user can download a transcript and see actionable failures", async ({ pa
     name: "YouTube to MP3/MP4/Transcript Converter",
   })).toBeVisible();
 
-  await page.getByLabel("YouTube URL").fill(
+  await page.getByLabel("Video URL").fill(
     "https://www.youtube.com/watch?v=fixture12345",
   );
   await page.locator('label[for="transcript"]').click();
@@ -29,12 +29,32 @@ test("a user can download a transcript and see actionable failures", async ({ pa
     "shared download path works",
   );
 
-  await page.getByLabel("YouTube URL").fill(
+  await page.getByLabel("Video URL").fill(
     "https://www.youtube.com/watch?v=private-video",
   );
   await page.getByRole("button", { name: "Download" }).click();
   await expect(status).toHaveClass(/error/);
   await expect(status).toContainText("private");
+});
+
+test("a user can transcribe a caption-less video via local speech-to-text", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("Video URL").fill(
+    "https://www.youtube.com/watch?v=no-captions",
+  );
+  await page.locator('label[for="transcript"]').click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download" }).click();
+
+  const status = page.locator("#status");
+  await expect(status).toContainText("Transcript ready!", { timeout: 10_000 });
+
+  const download = await downloadPromise;
+  const downloadPath = await download.path();
+  expect(downloadPath).not.toBeNull();
+  expect(await readFile(downloadPath!, "utf8")).toContain("No captions were needed");
 });
 
 test("gives up at the deadline the server advertises", async ({ page }) => {
@@ -60,7 +80,7 @@ test("gives up at the deadline the server advertises", async ({ page }) => {
   });
 
   await page.goto("/");
-  await page.getByLabel("YouTube URL").fill(
+  await page.getByLabel("Video URL").fill(
     "https://www.youtube.com/watch?v=fixture12345",
   );
   await page.getByRole("button", { name: "Download" }).click();

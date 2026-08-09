@@ -1,0 +1,44 @@
+{
+  "videoInfoSuccess": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"id\": \"fixture12345\",\n  \"title\": \"Fixture Video: E2E Test\",\n  \"uploader\": \"Fixture Channel\",\n  \"duration\": 42,\n  \"uploadDate\": \"20260718\",\n  \"thumbnail\": \"https://example.test/thumbnail.jpg\"\n}"
+      }
+    ]
+  },
+  "videoInfoError": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Download failed: ERROR: fixture downloader failed unexpectedly\n"
+      }
+    ],
+    "isError": true
+  },
+  "transcriptSuccess": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Title: Fixture Video: E2E Test\nUploader: Fixture Channel\nDuration: 42 seconds\nUpload date: 20260718\nVideo ID: fixture12345\nTranscript cache: <CACHE_DIR>/<CALL_DIR>/fixture12345-Fixture_Video_E2E_Test.txt\n\nHello & welcome to the fixture transcript.\nThis proves the shared download path works.\n"
+      }
+    ]
+  },
+  "transcriptError": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Failed to convert to TRANSCRIPT: No English captions or transcript were found for this video"
+      }
+    ],
+    "isError": true
+  },
+  "videoTranscriptStt": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Title: Fixture Video: E2E Test\nUploader: Fixture Channel\nDuration: 42 seconds\nUpload date: 20260718\nVideo ID: fixture12345\nTranscript cache: <CACHE_DIR>/<CALL_DIR>/fixture12345-Fixture_Video_E2E_Test.txt\n\nThis is the local speech-to-text fixture transcript.\nNo captions were needed.\n"
+      }
+    ]
+  }
+}

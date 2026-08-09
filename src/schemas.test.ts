@@ -57,6 +57,30 @@ describe("convertRequestSchema", () => {
     }
   });
 
+  test("transcript format accepts non-YouTube URLs", () => {
+    const validRequests = [
+      { url: "https://vimeo.com/123", format: "transcript" },
+      { url: "https://example.com/video.mp4", format: "transcript" },
+      { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", format: "transcript" },
+    ];
+
+    for (const request of validRequests) {
+      expect(convertRequestSchema.safeParse(request).success).toBe(true);
+    }
+  });
+
+  test("transcript format rejects inputs that are neither URLs nor paths", () => {
+    const invalidRequests = [
+      { url: "not a real source", format: "transcript" },
+      { url: "", format: "transcript" },
+      { url: "../../etc/passwd", format: "transcript" },
+    ];
+
+    for (const request of invalidRequests) {
+      expect(convertRequestSchema.safeParse(request).success).toBe(false);
+    }
+  });
+
   test("rejects invalid formats", () => {
     const invalidRequests = [
       { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", format: "wav" },

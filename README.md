@@ -6,9 +6,9 @@ The web app and CLI provide three outputs:
 
 - MP3 audio
 - MP4 video
-- Plain-text English transcripts from manual or auto-generated YouTube captions
+- Plain-text English transcripts from YouTube captions, with local speech-to-text (whisper.cpp) fallback for videos without captions
 
-> Transcripts come from captions already available on YouTube. This project does not perform speech-to-text on videos without captions.
+> Transcripts come from existing YouTube captions when available, and fall back to local, on-device speech-to-text (whisper.cpp) for videos without captions — including non-YouTube URLs and local video files. It is free and runs locally: no API keys, no per-minute cost.
 
 | Surface | Capabilities |
 | --- | --- |
@@ -27,7 +27,7 @@ bun run start
 
 Open <http://localhost:3000>, paste a YouTube URL, choose an output, and select **Download**.
 
-`setup.sh` is safe to run again. It installs or upgrades to Bun 1.3.6 or newer, detects existing tools, installs only missing requirements, installs the locked Bun dependencies, and runs the local checks. Automatic system-package installation supports:
+`setup.sh` is safe to run again. It installs or upgrades to Bun 1.3.6 or newer, detects existing tools, installs only missing requirements, installs the locked Bun dependencies, and runs the local checks. On macOS it also installs whisper.cpp and downloads the default speech-to-text model; on other platforms speech-to-text is optional. Automatic system-package installation supports:
 
 - macOS, bootstrapping Homebrew when needed
 - Debian/Ubuntu with `apt-get`
@@ -46,11 +46,13 @@ On Windows, use WSL for the same setup command, or manually install [Bun](https:
 
 ```bash
 bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
+bun run transcript "https://vimeo.com/123"
+bun run transcript "/path/to/local/video.mp4"
 bun run mp3 "https://www.youtube.com/watch?v=VIDEO_ID"
 bun run mp4 "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-Omit the URL to enter it interactively. Files are saved under `./downloads` unless `CLIENT_DOWNLOAD_DIR` is set:
+`bun run transcript` accepts any URL or a local media file. When no captions are available, the audio is transcribed locally by whisper.cpp. Omit the URL to enter it interactively. Files are saved under `./downloads` unless `CLIENT_DOWNLOAD_DIR` is set:
 
 ```bash
 CLIENT_DOWNLOAD_DIR=/tmp/youtube-downloads bun run transcript "https://youtu.be/VIDEO_ID"
@@ -110,7 +112,7 @@ MCP ─────────┘                     │
                                   └─→ FFmpeg for web/CLI MP3 and MP4 only
 ```
 
-Transcript downloads ask `yt-dlp` for English manual and auto-generated captions, prefer English caption files, remove VTT/SRT timing and markup, and save plain text. Videos without accessible English captions return a clear error.
+Transcript downloads ask `yt-dlp` for English manual and auto-generated captions, prefer English caption files, remove VTT/SRT timing and markup, and save plain text. When no captions are available, FFmpeg extracts mono 16 kHz audio and whisper.cpp transcribes it locally, so transcripts also work for non-YouTube URLs and local video files.
 
 ## Configuration
 
@@ -124,9 +126,25 @@ Transcript downloads ask `yt-dlp` for English manual and auto-generated captions
 
 On POSIX systems, including WSL, the MCP transcript cache is restricted to owner-only permissions and rejected if it is a symlink or owned by another UID. Native Windows has no UID or POSIX-mode enforcement here and relies on directory ACLs; WSL is the recommended Windows path.
 
+## Speech-to-text (whisper.cpp)
+
+Videos without captions (and non-YouTube URLs or local files) are transcribed locally by [whisper.cpp](https://github.com/ggml-org/whisper.cpp). No audio leaves your machine, and there are no API keys or per-minute costs. When whisper-cli or its model is missing, transcription of caption-less videos fails with a clear message.
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `WHISPER_CLI_PATH` | `whisper-cli` | Path to the whisper-cli binary |
+| `WHISPER_MODEL_PATH` | `models/ggml-base.en.bin` | Path to the model file |
+| `WHISPER_MODEL` | `base.en` | Model name used by `scripts/download-whisper-model.sh` |
+| `WHISPER_MODEL_DIR` | `models` | Directory where the download script places the model |
+| `WHISPER_LANG` | `en` | Source language for transcription |
+| `WHISPER_THREADS` | `4` | CPU threads for transcription |
+| `WHISPER_TIMEOUT_SECONDS` | `3600` | Timeout for a single transcription |
+
+`scripts/download-whisper-model.sh` fetches the model (default `base.en`, about 142 MB) from Hugging Face. `setup.sh` runs it automatically once whisper-cli is installed.
+
 ## Docker
 
-Docker includes Bun, `yt-dlp`, and FFmpeg:
+Docker includes Bun, `yt-dlp`, FFmpeg, and `whisper-cli` (with the base model):
 
 ```bash
 docker compose up --build

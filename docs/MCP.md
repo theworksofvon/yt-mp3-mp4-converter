@@ -9,9 +9,10 @@ The MCP entrypoint is `src/mcp.ts`. It calls the same `getVideoInfo()` and `down
 | Tool | Inputs | Result |
 | --- | --- | --- |
 | `get_youtube_video_info` | `url` | JSON-formatted video metadata |
-| `get_youtube_transcript` | `url`, optional `includeMetadata` | Cleaned English caption text |
+| `get_youtube_transcript` | `url`, optional `includeMetadata` | Cleaned English caption text (captions only) |
+| `get_video_transcript` | `url`, optional `includeMetadata` | Transcript for any video URL or local file, falling back to local speech-to-text |
 
-The tools are declared read-only, but they contact YouTube and cache caption files locally. No API key is required.
+The tools are declared read-only, but they contact YouTube (or the requested site) and cache transcript files locally. `get_youtube_video_info` and `get_youtube_transcript` are captions-only; `get_video_transcript` can fall back to local speech-to-text (whisper.cpp) for videos without captions. No API key is required.
 
 ## Install from a source checkout
 
@@ -137,7 +138,7 @@ Return only the transcript for this video; do not include metadata.
 
 ## Verification
 
-The unit suite starts the MCP process, completes the protocol handshake, and verifies both tools are discoverable:
+The unit suite starts the MCP process, completes the protocol handshake, and verifies all three tools are discoverable:
 
 ```bash
 bun test src/mcp.test.ts
@@ -153,7 +154,7 @@ bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 
 - Only English caption tracks matching `en.*` are requested.
 - Manual captions are used when available; auto-generated captions are also supported.
-- Videos without accessible English captions cannot be transcribed from their audio.
+- `get_youtube_transcript` returns captions only: videos without accessible English captions produce no transcript through that tool. Use `get_video_transcript` instead; it falls back to local speech-to-text for caption-less videos.
 - Private, deleted, age-restricted, region-blocked, and rate-limited videos may fail.
 - Long transcripts can consume substantial model context.
 - Plain-text transcript files remain in the transcript cache directory until the operating system or user removes them; temporary VTT/SRT caption files are cleaned up after each request.
@@ -189,7 +190,7 @@ Check the URL in the CLI to separate client configuration from YouTube availabil
 bun run transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-If the CLI reports that no English captions were found, the MCP server will return the same result because both use the same implementation.
+If the CLI reports that no English captions were found, the MCP server will return the same result because both use the same captions path; the CLI transcript command may instead fall back to local speech-to-text, which the MCP tool does not.
 
 ### Debug output corrupts MCP messages
 

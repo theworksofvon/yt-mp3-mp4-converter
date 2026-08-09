@@ -179,13 +179,21 @@ function isValidYouTubeUrl(url) {
 /**
  * Handle input validation
  */
-urlInput.addEventListener('input', () => {
+function validateUrlInput() {
   const url = urlInput.value.trim();
-  if (url && !isValidYouTubeUrl(url)) {
+  const format = document.querySelector('input[name="format"]:checked')?.value;
+  // Only MP3/MP4 downloads are YouTube-specific; transcripts accept any URL.
+  const needsYouTube = format === 'mp3' || format === 'mp4';
+  if (url && needsYouTube && !isValidYouTubeUrl(url)) {
     urlInput.style.borderColor = '#e94560';
   } else {
     urlInput.style.borderColor = '#e0e0e0';
   }
+}
+
+urlInput.addEventListener('input', validateUrlInput);
+form.querySelectorAll('input[name="format"]').forEach((radio) => {
+  radio.addEventListener('change', validateUrlInput);
 });
 
 // Attach form submit handler

@@ -5,6 +5,10 @@ All notable changes from Ralph Wiggum Loop sessions.
 ## [Unreleased]
 
 ### Added
+- `get_video_transcript` MCP tool that transcribes any video URL, falling back to local speech-to-text when captions are unavailable
+- Web app and `POST /api/convert` transcript jobs accept any video URL, not just YouTube; the CLI accepts local media file paths
+- Local speech-to-text (whisper.cpp) fallback for videos without captions: `scripts/download-whisper-model.sh` fetches the default model, `scripts/setup.sh` installs whisper-cli on macOS and downloads the model, and the Docker image builds whisper-cli from source and bakes in the base model
+- TypeScript behavior contracts, Rust migration architecture, complete test migration inventory, and deterministic CLI/MCP/HTTP golden parity fixtures
 - **Enhanced input sanitization** (`src/yt-dlp.ts`, `src/schemas.ts`)
   - Comprehensive command injection detection with 30+ pattern checks
   - `sanitizeString()` - removes control characters while preserving newlines/tabs

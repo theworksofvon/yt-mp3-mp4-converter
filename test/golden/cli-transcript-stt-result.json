@@ -1,0 +1,5 @@
+{
+  "stdout": "Fetching video info...\nDownloading transcript...\nNo captions found. Transcribing audio locally...\nSaved: <OUTPUT_DIR>/Fixture_Video_E2E_Test.txt\n",
+  "stderr": "",
+  "exitCode": 0
+}

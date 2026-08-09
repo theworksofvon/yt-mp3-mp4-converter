@@ -196,8 +196,12 @@ app.post("/api/convert", async (c) => {
     (async () => {
       try {
         // Get video info first. Only MP3 downloads the format whose size
-        // yt-dlp reports, so only MP3 can pre-reject on it.
-        const videoInfo = await getVideoInfo(url, { enforceFileSizeLimit: format === "mp3" });
+        // yt-dlp reports, so only MP3 can pre-reject on it. Transcript jobs
+        // accept any http(s) URL (and resolve to speech-to-text if needed).
+        const videoInfo = await getVideoInfo(url, {
+          enforceFileSizeLimit: format === "mp3",
+          allowAnySource: format === "transcript",
+        });
 
         // Sanitize filename
         const safeFilename = sanitizeFilename(videoInfo.title);

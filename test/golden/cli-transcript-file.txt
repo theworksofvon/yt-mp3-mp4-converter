@@ -1,0 +1,2 @@
+Hello & welcome to the fixture transcript.
+This proves the shared download path works.

@@ -13,7 +13,11 @@ services:
       # Optional: Max file size in MB
       - MAX_FILE_SIZE_MB=500
     volumes:
-      # Persist downloads to host (optional)
+      # Persist downloads to host (optional). The whisper model is baked into
+      # the image at /models (WHISPER_MODEL_PATH) when the build can download
+      # it; do not mount a directory over /models or an empty volume would
+      # hide the model. If the bake was skipped (rate limited), mount a
+      # directory containing ggml-base.en.bin at /models to enable STT.
       - ./downloads:/tmp/yt-converter-downloads
     restart: unless-stopped
     healthcheck:
