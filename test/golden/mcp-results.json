@@ -32,5 +32,13 @@
       }
     ],
     "isError": true
+  },
+  "videoTranscriptStt": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Title: Fixture Video: E2E Test\nUploader: Fixture Channel\nDuration: 42 seconds\nUpload date: 20260718\nVideo ID: fixture12345\nTranscript cache: <CACHE_DIR>/<CALL_DIR>/fixture12345-Fixture_Video_E2E_Test.txt\n\nThis is the local speech-to-text fixture transcript.\nNo captions were needed.\n"
+      }
+    ]
   }
 }

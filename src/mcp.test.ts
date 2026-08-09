@@ -9,6 +9,9 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const FIXTURE_YT_DLP = resolve(import.meta.dir, "../test/fixtures/bin/yt-dlp");
+const FIXTURE_WHISPER_CLI = resolve(import.meta.dir, "../test/fixtures/bin/whisper-cli");
+const FIXTURE_FFMPEG = resolve(import.meta.dir, "../test/fixtures/bin/ffmpeg");
+const FIXTURE_MODEL = resolve(import.meta.dir, "../test/fixtures/bin/fixture-model.bin");
 const FIXTURE_URL = "https://www.youtube.com/watch?v=fixture12345";
 
 async function withClient<T>(
@@ -61,6 +64,7 @@ describe("MCP server", () => {
       const result = await client.listTools();
 
       expect(result.tools.map((tool) => tool.name).sort()).toEqual([
+        "get_video_transcript",
         "get_youtube_transcript",
         "get_youtube_video_info",
       ]);
@@ -90,6 +94,29 @@ describe("MCP server", () => {
       expect(unavailable.isError).toBe(true);
     } finally {
       await client.close();
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  test("get_video_transcript falls back to speech-to-text for caption-less videos", async () => {
+    const cacheDir = await mkdtemp(resolve(tmpdir(), "yt-converter-mcp-stt-"));
+
+    try {
+      const transcript = await withClient({
+        MCP_TRANSCRIPT_DIR: cacheDir,
+        WHISPER_CLI_PATH: FIXTURE_WHISPER_CLI,
+        FFMPEG_PATH: FIXTURE_FFMPEG,
+        WHISPER_MODEL_PATH: FIXTURE_MODEL,
+      }, (client) =>
+        client.callTool({
+          name: "get_video_transcript",
+          arguments: { url: "https://vimeo.com/no-captions-123", includeMetadata: false },
+        }),
+      );
+
+      expect(transcript.isError).not.toBe(true);
+      expect(JSON.stringify(transcript.content)).toContain("No captions were needed");
+    } finally {
       await rm(cacheDir, { recursive: true, force: true });
     }
   }, 10_000);

@@ -47,7 +47,17 @@ async function ensureCacheDir(): Promise<void> {
   }
 }
 
-async function getTranscript(url: string): Promise<{
+interface TranscriptRequestOptions {
+  /** Accept any http(s) URL or local file, not just YouTube. */
+  allowAnySource?: boolean;
+  /** Fall back to local speech-to-text when no captions exist. */
+  sttFallback?: boolean;
+}
+
+async function getTranscript(
+  url: string,
+  options: TranscriptRequestOptions = {},
+): Promise<{
   id: string;
   title: string;
   uploader: string;
@@ -58,13 +68,17 @@ async function getTranscript(url: string): Promise<{
 }> {
   await ensureCacheDir();
 
-  const videoInfo = await getVideoInfo(url);
+  const { allowAnySource = false, sttFallback = false } = options;
+  const videoInfo = await getVideoInfo(url, { allowAnySource });
   const callDirectory = await mkdtemp(`${CACHE_DIR}/transcript-`);
   if (process.platform !== "win32") {
     await chmod(callDirectory, 0o700);
   }
   const basePath = `${callDirectory}/${videoInfo.id}-${sanitizeFilename(videoInfo.title)}`;
-  const transcriptPath = await downloadTranscript(url, basePath, { sttFallback: false });
+  const transcriptPath = await downloadTranscript(url, basePath, {
+    sttFallback,
+    onSttFallback: () => {},
+  });
   const transcript = await Bun.file(transcriptPath).text();
 
   return {
@@ -145,12 +159,50 @@ server.registerTool(
   },
   async ({ url, includeMetadata }) => {
     try {
-      const result = await getTranscript(url);
+      const result = await getTranscript(url, { sttFallback: false });
       const metadata = [
         `Title: ${result.title}`,
         `Uploader: ${result.uploader}`,
         `Duration: ${result.duration} seconds`,
         `Upload date: ${result.uploadDate}`,
+        `Video ID: ${result.id}`,
+        `Transcript cache: ${result.transcriptPath}`,
+      ].join("\n");
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: includeMetadata ? `${metadata}\n\n${result.transcript}` : result.transcript,
+        }],
+      };
+    } catch (error) {
+      return toolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "get_video_transcript",
+  {
+    title: "Get Video Transcript",
+    description: "Fetch the transcript for any video URL, using existing captions or falling back to local speech-to-text when none exist. Accepts YouTube, Vimeo, Twitch, and other sites yt-dlp supports.",
+    inputSchema: {
+      url: z.string().min(1).describe("Video URL"),
+      includeMetadata: z.boolean().default(true).describe("Include video metadata before the transcript"),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({ url, includeMetadata }) => {
+    try {
+      const result = await getTranscript(url, { allowAnySource: true, sttFallback: true });
+      const metadata = [
+        `Title: ${result.title}`,
+        `Uploader: ${result.uploader || "(unavailable)"}`,
+        `Duration: ${result.duration} seconds`,
+        `Upload date: ${result.uploadDate || "(unavailable)"}`,
         `Video ID: ${result.id}`,
         `Transcript cache: ${result.transcriptPath}`,
       ].join("\n");

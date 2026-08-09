@@ -14,15 +14,13 @@ const FIXTURE_BIN_DIR = resolve(import.meta.dir, "fixtures/bin");
 const FIXTURE_YT_DLP = resolve(FIXTURE_BIN_DIR, "yt-dlp");
 const FIXTURE_WHISPER_CLI = resolve(FIXTURE_BIN_DIR, "whisper-cli");
 const FIXTURE_FFMPEG = resolve(FIXTURE_BIN_DIR, "ffmpeg");
+const FIXTURE_MODEL = resolve(FIXTURE_BIN_DIR, "fixture-model.bin");
 const BASE_URL = "https://www.youtube.com/watch?v=";
 
 let tempDir = "";
-let modelPath = "";
 
 beforeAll(async () => {
   tempDir = await mkdtemp(resolve(tmpdir(), "yt-converter-golden-"));
-  modelPath = resolve(tempDir, "fixture-model.bin");
-  await Bun.write(modelPath, "fixture-model-bytes");
 });
 
 afterAll(async () => {
@@ -71,7 +69,7 @@ async function runCli(url: string, outputDir: string) {
       YT_DLP_PATH: FIXTURE_YT_DLP,
       WHISPER_CLI_PATH: FIXTURE_WHISPER_CLI,
       FFMPEG_PATH: FIXTURE_FFMPEG,
-      WHISPER_MODEL_PATH: modelPath,
+      WHISPER_MODEL_PATH: FIXTURE_MODEL,
     }),
     stdout: "pipe",
     stderr: "pipe",
@@ -134,6 +132,9 @@ async function captureMcp(): Promise<void> {
       ...getDefaultEnvironment(),
       MCP_TRANSCRIPT_DIR: cacheDir,
       YT_DLP_PATH: FIXTURE_YT_DLP,
+      WHISPER_CLI_PATH: FIXTURE_WHISPER_CLI,
+      FFMPEG_PATH: FIXTURE_FFMPEG,
+      WHISPER_MODEL_PATH: FIXTURE_MODEL,
     }),
     stderr: "pipe",
   });
@@ -157,6 +158,10 @@ async function captureMcp(): Promise<void> {
       transcriptError: await client.callTool({
         name: "get_youtube_transcript",
         arguments: { url: `${BASE_URL}no-captions`, includeMetadata: false },
+      }),
+      videoTranscriptStt: await client.callTool({
+        name: "get_video_transcript",
+        arguments: { url: "https://vimeo.com/no-captions-123", includeMetadata: true },
       }),
     };
 
