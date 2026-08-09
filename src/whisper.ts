@@ -18,21 +18,26 @@ export interface WhisperConfig {
   threads: number;
   language: string;
   timeoutSeconds: number;
+  ffmpegTimeoutSeconds: number;
 }
 
 /**
  * Reads the speech-to-text configuration from the environment on every call so
- * callers and tests can vary it without re-importing the module.
+ * callers and tests can vary it without re-importing the module. The default
+ * model path resolves relative to this module so the server works from any
+ * working directory.
  */
 export function whisperConfig(): WhisperConfig {
   const threads = Number.parseInt(process.env.WHISPER_THREADS || "4", 10);
   const timeoutSeconds = Number.parseInt(process.env.WHISPER_TIMEOUT_SECONDS || "3600", 10);
+  const ffmpegTimeoutSeconds = Number.parseInt(process.env.WHISPER_FFMPEG_TIMEOUT_SECONDS || "900", 10);
   return {
     cliPath: process.env.WHISPER_CLI_PATH || "whisper-cli",
-    modelPath: process.env.WHISPER_MODEL_PATH || resolve("models", "ggml-base.en.bin"),
+    modelPath: process.env.WHISPER_MODEL_PATH || resolve(import.meta.dir, "../models/ggml-base.en.bin"),
     threads: Number.isInteger(threads) && threads > 0 ? threads : 4,
     language: process.env.WHISPER_LANG || "en",
     timeoutSeconds: Number.isInteger(timeoutSeconds) && timeoutSeconds > 0 ? timeoutSeconds : 3600,
+    ffmpegTimeoutSeconds: Number.isInteger(ffmpegTimeoutSeconds) && ffmpegTimeoutSeconds > 0 ? ffmpegTimeoutSeconds : 900,
   };
 }
 
@@ -116,7 +121,7 @@ export async function extractWav(
       "-c:a", "pcm_s16le",
       wavPath,
     ],
-    config.timeoutSeconds,
+    config.ffmpegTimeoutSeconds,
     "ffmpeg could not be started",
   );
 

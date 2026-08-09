@@ -5,16 +5,18 @@ import {
   NetworkTimeoutError,
   ConversionError,
   FileSizeError,
+  RateLimitError,
   TranscriptionError,
   WhisperUnavailableError,
   parseYtDlpError,
 } from "./errors.js";
 import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { isIP } from "node:net";
 import { basename, dirname, extname, resolve } from "node:path";
 import { transcribeAudioFile } from "./whisper.js";
 
 // YouTube URL validation regex
-export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]+/;
+export const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]+/;
 
 // Maximum file size in bytes (default 500MB, can be overridden via env)
 const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10) * 1024 * 1024;
@@ -23,12 +25,17 @@ const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10)
 // to derive a deadline that outlasts the work the server is willing to do.
 export const METADATA_TIMEOUT_SECONDS = 60;
 
+// Caption download is quick even for long videos; the transcript budget is
+// dominated by the speech-to-text fallback, which runs roughly in real time.
+export const CAPTIONS_TIMEOUT_SECONDS = 120;
+export const AUDIO_DOWNLOAD_TIMEOUT_SECONDS = 900;
+
 export const FORMAT_TIMEOUT_SECONDS: Record<OutputFormat, number> = {
   mp3: 300,
   mp4: 900,
-  // Speech-to-text runs roughly in real time on CPU, so the transcript budget
-  // must outlast long videos even though caption-only transcripts are quick.
-  transcript: 3600,
+  // One full speech-to-text pass plus its setup steps fits inside two hours;
+  // the poll deadline below derives from this so clients do not give up early.
+  transcript: 7200,
 };
 
 /**
@@ -262,19 +269,71 @@ async function isExistingFile(path: string): Promise<boolean> {
 }
 
 /**
+ * Rejects http(s) URLs whose literal host is a loopback, private, link-local,
+ * or otherwise non-public IP. Hostname-based SSRF (e.g. a DNS name resolving
+ * to an internal address) remains a documented limitation of the any-source
+ * transcript path.
+ */
+function isDeniedTargetHost(urlString: string): boolean {
+  let host: string;
+  try {
+    host = new URL(urlString).hostname;
+  } catch {
+    return true;
+  }
+  if (!host) return true;
+
+  // URL.hostname keeps the brackets around IPv6 literals; isIP() needs them off.
+  const ipHost = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+
+  if (isIP(ipHost) === 4) {
+    const [a = 0, b = 0] = ipHost.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+
+  if (isIP(ipHost) === 6) {
+    const lower = ipHost.toLowerCase();
+    if (lower === "::" || lower === "::1") return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7
+    if (/^fe[89ab]/.test(lower)) return true; // fe80::/10
+    return false;
+  }
+
+  return false;
+}
+
+/**
  * Classifies an input as a YouTube URL, another http(s) URL, or a local file
  * path. Anything that is none of those is rejected as an invalid source.
  */
 export async function resolveSourceKind(input: string): Promise<SourceKind> {
   const candidate = input.trim();
-  if (!candidate || hasCommandInjection(candidate)) {
+  if (!candidate) {
     throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
   }
 
-  if (looksLikeHttpUrl(candidate) || isValidYouTubeUrl(candidate)) {
+  if (looksLikeHttpUrl(candidate)) {
+    if (hasCommandInjection(candidate)) {
+      throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
+    }
+    if (!isValidYouTubeUrl(candidate) && isDeniedTargetHost(candidate)) {
+      throw new InvalidUrlError(candidate, `Invalid source: ${candidate}`);
+    }
     return isValidYouTubeUrl(candidate) ? "youtube" : "url";
   }
 
+  if (isValidYouTubeUrl(candidate)) {
+    // isValidYouTubeUrl already rejects command injection.
+    return "youtube";
+  }
+
+  // Local files are passed to FFmpeg as a single array argument, so shell
+  // metacharacters in a real file path are not an injection vector here.
   if (await isExistingFile(candidate)) {
     return "local";
   }
@@ -296,7 +355,7 @@ export async function getVideoInfo(url: string, options: VideoInfoOptions = {}):
     // Local files have no extractor metadata; derive a stable identity from
     // the filename so the shared transcript surfaces can name the output.
     const path = resolve(url);
-    const stem = basename(path, extname(path));
+    const stem = sanitizeFilename(basename(path, extname(path)));
     return {
       id: stem,
       title: stem,
@@ -584,13 +643,16 @@ export async function downloadAudioForStt(url: string, outputPath: string): Prom
   const args = [
     "-f", "bestaudio/best",
     "--no-playlist",
+    // Keep the audio download bounded like the MP3 path so a handful of
+    // transcript jobs cannot exhaust disk.
+    "--max-filesize", `${MAX_FILE_SIZE}`,
     "-o", `${safePath}.%(ext)s`,
     "--no-progress",
     "--newline",
     normalizeHttpUrl(url.trim()),
   ];
 
-  const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.transcript);
+  const result = await spawnYtDlp(args, AUDIO_DOWNLOAD_TIMEOUT_SECONDS);
   if (result.exitCode !== 0) {
     throw parseYtDlpError(result.stderr);
   }
@@ -642,7 +704,7 @@ export async function downloadTranscript(
       "--no-progress",
       cleanUrl,
     ];
-    const result = await spawnYtDlp(args, FORMAT_TIMEOUT_SECONDS.transcript);
+    const result = await spawnYtDlp(args, CAPTIONS_TIMEOUT_SECONDS);
 
     if (result.exitCode !== 0) {
       throw parseYtDlpError(result.stderr);
@@ -657,6 +719,9 @@ export async function downloadTranscript(
         await Bun.write(finalPath, transcript);
         return finalPath;
       }
+      if (!sttFallback) {
+        throw new ConversionError("transcript", "Downloaded captions did not contain readable transcript text");
+      }
     }
 
     if (!sttFallback) {
@@ -669,8 +734,8 @@ export async function downloadTranscript(
   } catch (error) {
     if (error instanceof InvalidUrlError || error instanceof VideoNotAccessibleError ||
         error instanceof NetworkTimeoutError || error instanceof FileSizeError ||
-        error instanceof ConversionError || error instanceof TranscriptionError ||
-        error instanceof WhisperUnavailableError) {
+        error instanceof RateLimitError || error instanceof ConversionError ||
+        error instanceof TranscriptionError || error instanceof WhisperUnavailableError) {
       throw error;
     }
     throw new ConversionError("transcript", error instanceof Error ? error.message : String(error));

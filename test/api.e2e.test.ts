@@ -145,7 +145,7 @@ describe("web API end to end", () => {
 
     expect(mp3.pollTimeoutSeconds).toBe(360);
     expect(mp4.pollTimeoutSeconds).toBe(960);
-    expect(transcript.pollTimeoutSeconds).toBe(3660);
+    expect(transcript.pollTimeoutSeconds).toBe(7260);
   });
 
   test("returns validation, missing-job, incomplete-job, and conversion errors", async () => {

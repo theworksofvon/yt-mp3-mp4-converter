@@ -6,7 +6,7 @@
       "status": "processing",
       "message": "Conversion started",
       "checkUrl": "/api/jobs/<JOB_ID>",
-      "pollTimeoutSeconds": 3660
+      "pollTimeoutSeconds": 7260
     }
   },
   "job": {
