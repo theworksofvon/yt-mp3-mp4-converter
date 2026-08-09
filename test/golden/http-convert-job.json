@@ -1,0 +1,37 @@
+{
+  "convert": {
+    "status": 202,
+    "body": {
+      "jobId": "<JOB_ID>",
+      "status": "processing",
+      "message": "Conversion started",
+      "checkUrl": "/api/jobs/<JOB_ID>",
+      "pollTimeoutSeconds": 180
+    }
+  },
+  "job": {
+    "status": 200,
+    "body": {
+      "jobId": "<JOB_ID>",
+      "status": "completed",
+      "format": "transcript",
+      "videoInfo": {
+        "id": "fixture12345",
+        "title": "Fixture Video: E2E Test",
+        "duration": 42,
+        "thumbnail": "https://example.test/thumbnail.jpg",
+        "uploader": "Fixture Channel",
+        "upload_date": "20260718"
+      },
+      "outputPath": "<DOWNLOAD_DIR>/<JOB_ID>-Fixture_Video_E2E_Test.txt",
+      "filename": "Fixture_Video_E2E_Test.txt",
+      "createdAt": "<TIMESTAMP>"
+    }
+  },
+  "download": {
+    "status": 200,
+    "contentType": "text/plain; charset=utf-8",
+    "contentDisposition": "attachment; filename=\"Fixture_Video_E2E_Test.txt\"",
+    "body": "Hello & welcome to the fixture transcript.\nThis proves the shared download path works.\n"
+  }
+}

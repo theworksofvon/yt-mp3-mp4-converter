@@ -33,6 +33,10 @@ if (url.includes("rate-limited")) {
   fail("ERROR: Too many requests; rate limit reached");
 }
 
+if (url.includes("downloader-failure")) {
+  fail("ERROR: fixture downloader failed unexpectedly");
+}
+
 if (args.includes("--dump-json")) {
   if (url.includes("invalid-json")) {
     console.log("{not-json");

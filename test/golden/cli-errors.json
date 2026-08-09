@@ -1,0 +1,20 @@
+[
+  {
+    "scenario": "missing_captions",
+    "stdout": "Fetching video info...\nDownloading transcript...\n",
+    "stderr": "Failed to convert to TRANSCRIPT: No English captions or transcript were found for this video\n",
+    "exitCode": 1
+  },
+  {
+    "scenario": "invalid_url",
+    "stdout": "Fetching video info...\n",
+    "stderr": "Invalid YouTube URL: https://example.com/not-youtube\n",
+    "exitCode": 1
+  },
+  {
+    "scenario": "downloader_failure",
+    "stdout": "Fetching video info...\n",
+    "stderr": "Download failed: ERROR: fixture downloader failed unexpectedly\n\n",
+    "exitCode": 1
+  }
+]
