@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+const YOUTUBE_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]+/;
+const YOUTUBE_ID_PATTERN = /(?:[?&]v=|\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/;
+
+function isHttpSource(input: string): boolean {
+  try {
+    const url = new URL(input);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Zod schema for validating convert request payloads
  *
@@ -8,6 +20,9 @@ import { z } from "zod";
  * - Format validation (only mp3 or mp4 allowed)
  * - Length limits to prevent DoS
  * - Type safety
+ *
+ * MP3 and MP4 remain YouTube-only. Transcript accepts any http(s) URL because
+ * the transcript surface can transcribe regular videos with speech-to-text.
  */
 export const convertRequestSchema = z.object({
   url: z.string("URL is required and must be a string")
@@ -29,22 +44,6 @@ export const convertRequestSchema = z.object({
       },
       "URL contains invalid or potentially malicious characters"
     )
-    .refine(
-      (val) => {
-        // Validate YouTube URL format
-        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)[\w-]+/;
-        return youtubeRegex.test(val);
-      },
-      "Invalid YouTube URL format"
-    )
-    .refine(
-      (val) => {
-        // Extract and validate video ID is properly formatted
-        const match = val.match(/(?:[?&]v=|\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
-        return match !== null;
-      },
-      "Could not extract valid YouTube video ID"
-    )
     .transform((val) => {
       // Sanitize the URL by trimming and ensuring valid protocol
       const trimmed = val.trim();
@@ -59,6 +58,23 @@ export const convertRequestSchema = z.object({
 
   // Optional: quality preference (for future use)
   quality: z.enum(["low", "medium", "high"], "Quality must be 'low', 'medium', or 'high'").optional(),
+}).superRefine((data, ctx) => {
+  if (data.format === "mp3" || data.format === "mp4") {
+    // Validate YouTube URL format and video ID
+    if (!YOUTUBE_REGEX.test(data.url) || !YOUTUBE_ID_PATTERN.test(data.url)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["url"],
+        message: "Invalid YouTube URL format",
+      });
+    }
+  } else if (!isHttpSource(data.url)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["url"],
+      message: "Invalid source URL",
+    });
+  }
 });
 
 /**

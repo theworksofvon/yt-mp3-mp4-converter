@@ -145,14 +145,14 @@ describe("web API end to end", () => {
 
     expect(mp3.pollTimeoutSeconds).toBe(360);
     expect(mp4.pollTimeoutSeconds).toBe(960);
-    expect(transcript.pollTimeoutSeconds).toBe(180);
+    expect(transcript.pollTimeoutSeconds).toBe(3660);
   });
 
   test("returns validation, missing-job, incomplete-job, and conversion errors", async () => {
     const invalid = await fetch(`${ORIGIN}/api/convert`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: "https://example.com", format: "transcript" }),
+      body: JSON.stringify({ url: "not a source", format: "transcript" }),
     });
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toMatchObject({ code: "VALIDATION_ERROR" });

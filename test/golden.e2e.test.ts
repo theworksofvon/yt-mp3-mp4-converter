@@ -12,12 +12,17 @@ const ROOT_DIR = resolve(import.meta.dir, "..");
 const GOLDEN_DIR = resolve(import.meta.dir, "golden");
 const FIXTURE_BIN_DIR = resolve(import.meta.dir, "fixtures/bin");
 const FIXTURE_YT_DLP = resolve(FIXTURE_BIN_DIR, "yt-dlp");
+const FIXTURE_WHISPER_CLI = resolve(FIXTURE_BIN_DIR, "whisper-cli");
+const FIXTURE_FFMPEG = resolve(FIXTURE_BIN_DIR, "ffmpeg");
 const BASE_URL = "https://www.youtube.com/watch?v=";
 
 let tempDir = "";
+let modelPath = "";
 
 beforeAll(async () => {
   tempDir = await mkdtemp(resolve(tmpdir(), "yt-converter-golden-"));
+  modelPath = resolve(tempDir, "fixture-model.bin");
+  await Bun.write(modelPath, "fixture-model-bytes");
 });
 
 afterAll(async () => {
@@ -64,6 +69,9 @@ async function runCli(url: string, outputDir: string) {
       ...process.env,
       CLIENT_DOWNLOAD_DIR: outputDir,
       YT_DLP_PATH: FIXTURE_YT_DLP,
+      WHISPER_CLI_PATH: FIXTURE_WHISPER_CLI,
+      FFMPEG_PATH: FIXTURE_FFMPEG,
+      WHISPER_MODEL_PATH: modelPath,
     }),
     stdout: "pipe",
     stderr: "pipe",
@@ -85,24 +93,34 @@ async function runCli(url: string, outputDir: string) {
 }
 
 async function captureCli(): Promise<void> {
-  const outputDir = resolve(tempDir, "cli");
-  await mkdir(outputDir, { recursive: true });
-  const success = await runCli(`${BASE_URL}fixture12345`, outputDir);
+  const captionsDir = resolve(tempDir, "cli");
+  await mkdir(captionsDir, { recursive: true });
+  const captionsSuccess = await runCli(`${BASE_URL}fixture12345`, captionsDir);
 
-  await assertGolden("cli-transcript.stdout.txt", success.stdout);
-  await assertGolden("cli-transcript-result.json", stableJson(success));
+  await assertGolden("cli-transcript.stdout.txt", captionsSuccess.stdout);
+  await assertGolden("cli-transcript-result.json", stableJson(captionsSuccess));
   await assertGolden(
     "cli-transcript-file.txt",
-    await Bun.file(resolve(outputDir, "Fixture_Video_E2E_Test.txt")).text(),
+    await Bun.file(resolve(captionsDir, "Fixture_Video_E2E_Test.txt")).text(),
+  );
+
+  const sttDir = resolve(tempDir, "cli-stt");
+  await mkdir(sttDir, { recursive: true });
+  const sttSuccess = await runCli(`${BASE_URL}no-captions`, sttDir);
+
+  await assertGolden("cli-transcript-stt.stdout.txt", sttSuccess.stdout);
+  await assertGolden("cli-transcript-stt-result.json", stableJson(sttSuccess));
+  await assertGolden(
+    "cli-transcript-stt-file.txt",
+    await Bun.file(resolve(sttDir, "Fixture_Video_E2E_Test.txt")).text(),
   );
 
   const failures = [];
   for (const [scenario, url] of [
-    ["missing_captions", `${BASE_URL}no-captions`],
-    ["invalid_url", "https://example.com/not-youtube"],
+    ["invalid_source", "not-a-real-source"],
     ["downloader_failure", `${BASE_URL}downloader-failure`],
   ] as const) {
-    failures.push({ scenario, ...await runCli(url, outputDir) });
+    failures.push({ scenario, ...await runCli(url, resolve(tempDir, `cli-errors-${scenario}`)) });
   }
   await assertGolden("cli-errors.json", stableJson(failures));
 }

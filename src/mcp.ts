@@ -64,7 +64,7 @@ async function getTranscript(url: string): Promise<{
     await chmod(callDirectory, 0o700);
   }
   const basePath = `${callDirectory}/${videoInfo.id}-${sanitizeFilename(videoInfo.title)}`;
-  const transcriptPath = await downloadTranscript(url, basePath);
+  const transcriptPath = await downloadTranscript(url, basePath, { sttFallback: false });
   const transcript = await Bun.file(transcriptPath).text();
 
   return {

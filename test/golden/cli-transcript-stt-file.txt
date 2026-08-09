@@ -1,0 +1,2 @@
+This is the local speech-to-text fixture transcript.
+No captions were needed.

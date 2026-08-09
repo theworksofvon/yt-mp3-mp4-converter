@@ -16,28 +16,47 @@ import {
   ConversionError,
   ConverterError,
   FileSizeError,
+  InvalidUrlError,
   RateLimitError,
   VideoNotAccessibleError,
 } from "./errors";
 
 const FIXTURE_YT_DLP = resolve(import.meta.dir, "../test/fixtures/bin/yt-dlp");
+const FIXTURE_WHISPER_CLI = resolve(import.meta.dir, "../test/fixtures/bin/whisper-cli");
+const FIXTURE_FFMPEG = resolve(import.meta.dir, "../test/fixtures/bin/ffmpeg");
 const BASE_URL = "https://www.youtube.com/watch?v=";
+const STT_TRANSCRIPT = "This is the local speech-to-text fixture transcript.\nNo captions were needed.\n";
 
 let outputDir = "";
+let modelPath = "";
 let originalYtDlpPath: string | undefined;
+let originalWhisperCliPath: string | undefined;
+let originalFfmpegPath: string | undefined;
+let originalWhisperModelPath: string | undefined;
 
 beforeAll(async () => {
   originalYtDlpPath = process.env.YT_DLP_PATH;
+  originalWhisperCliPath = process.env.WHISPER_CLI_PATH;
+  originalFfmpegPath = process.env.FFMPEG_PATH;
+  originalWhisperModelPath = process.env.WHISPER_MODEL_PATH;
   process.env.YT_DLP_PATH = FIXTURE_YT_DLP;
+  process.env.WHISPER_CLI_PATH = FIXTURE_WHISPER_CLI;
+  process.env.FFMPEG_PATH = FIXTURE_FFMPEG;
   outputDir = await mkdtemp(resolve(tmpdir(), "yt-converter-adapter-"));
+  modelPath = resolve(outputDir, "fixture-model.bin");
+  await Bun.write(modelPath, "fixture-model-bytes");
+  process.env.WHISPER_MODEL_PATH = modelPath;
 });
 
 afterAll(async () => {
-  if (originalYtDlpPath === undefined) {
-    delete process.env.YT_DLP_PATH;
-  } else {
-    process.env.YT_DLP_PATH = originalYtDlpPath;
-  }
+  if (originalYtDlpPath === undefined) delete process.env.YT_DLP_PATH;
+  else process.env.YT_DLP_PATH = originalYtDlpPath;
+  if (originalWhisperCliPath === undefined) delete process.env.WHISPER_CLI_PATH;
+  else process.env.WHISPER_CLI_PATH = originalWhisperCliPath;
+  if (originalFfmpegPath === undefined) delete process.env.FFMPEG_PATH;
+  else process.env.FFMPEG_PATH = originalFfmpegPath;
+  if (originalWhisperModelPath === undefined) delete process.env.WHISPER_MODEL_PATH;
+  else process.env.WHISPER_MODEL_PATH = originalWhisperModelPath;
   await rm(outputDir, { recursive: true, force: true });
 });
 
@@ -86,7 +105,10 @@ describe("yt-dlp adapter with a deterministic executable", () => {
     expect(pollTimeoutSeconds("transcript")).toBe(
       METADATA_TIMEOUT_SECONDS + FORMAT_TIMEOUT_SECONDS.transcript
     );
-    expect(pollTimeoutSeconds("mp4")).toBeGreaterThan(pollTimeoutSeconds("transcript"));
+    // Speech-to-text runs near real time, so the transcript budget is the
+    // longest of the three formats rather than the shortest.
+    expect(pollTimeoutSeconds("transcript")).toBeGreaterThan(pollTimeoutSeconds("mp3"));
+    expect(pollTimeoutSeconds("transcript")).toBeGreaterThan(pollTimeoutSeconds("mp4"));
   });
 
   test("reports invalid metadata JSON", async () => {
@@ -122,11 +144,47 @@ describe("yt-dlp adapter with a deterministic executable", () => {
 
   test("reports missing and empty captions", async () => {
     await expect(
-      downloadTranscript(`${BASE_URL}no-captions`, resolve(outputDir, "missing", "transcript"))
+      downloadTranscript(`${BASE_URL}no-captions`, resolve(outputDir, "missing", "transcript"), { sttFallback: false })
     ).rejects.toBeInstanceOf(ConversionError);
     await expect(
-      downloadTranscript(`${BASE_URL}empty-captions`, resolve(outputDir, "empty-transcript"))
+      downloadTranscript(`${BASE_URL}empty-captions`, resolve(outputDir, "empty-transcript"), { sttFallback: false })
     ).rejects.toBeInstanceOf(ConversionError);
+  });
+
+  test("falls back to speech-to-text when a URL has no captions", async () => {
+    let fallbackNotified = false;
+    const transcriptPath = await downloadTranscript(
+      `${BASE_URL}no-captions`,
+      resolve(outputDir, "stt-fallback"),
+      { sttFallback: true, onSttFallback: () => { fallbackNotified = true; } },
+    );
+
+    expect(fallbackNotified).toBe(true);
+    expect(await Bun.file(transcriptPath).text()).toBe(STT_TRANSCRIPT);
+  });
+
+  test("transcribes a local video file with speech-to-text", async () => {
+    const localVideo = resolve(outputDir, "local-video.mp4");
+    await Bun.write(localVideo, "fake-video-bytes");
+
+    const transcriptPath = await downloadTranscript(
+      localVideo,
+      resolve(outputDir, "local-transcript"),
+    );
+
+    expect(await Bun.file(transcriptPath).text()).toBe(STT_TRANSCRIPT);
+  });
+
+  test("reads metadata for non-YouTube sources only when allowed", async () => {
+    const urlInfo = await getVideoInfo("https://vimeo.com/123", { allowAnySource: true });
+    expect(urlInfo).toMatchObject({ title: "Fixture Video: E2E Test" });
+
+    const localVideo = resolve(outputDir, "local-meta.mp4");
+    await Bun.write(localVideo, "fake-video-bytes");
+    const localInfo = await getVideoInfo(localVideo, { allowAnySource: true });
+    expect(localInfo).toMatchObject({ id: "local-meta", title: "local-meta", duration: 0 });
+
+    await expect(getVideoInfo("https://vimeo.com/123")).rejects.toBeInstanceOf(InvalidUrlError);
   });
 
   test("never returns captions left behind by an earlier request", async () => {
@@ -136,7 +194,7 @@ describe("yt-dlp adapter with a deterministic executable", () => {
       "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nLeaked from another request.\n"
     );
 
-    await expect(downloadTranscript(`${BASE_URL}no-captions`, base)).rejects.toBeInstanceOf(
+    await expect(downloadTranscript(`${BASE_URL}no-captions`, base, { sttFallback: false })).rejects.toBeInstanceOf(
       ConversionError
     );
     expect(await Bun.file(`${base}.en.vtt`).exists()).toBe(true);

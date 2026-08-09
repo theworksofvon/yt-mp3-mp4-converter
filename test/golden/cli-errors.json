@@ -1,14 +1,8 @@
 [
   {
-    "scenario": "missing_captions",
-    "stdout": "Fetching video info...\nDownloading transcript...\n",
-    "stderr": "Failed to convert to TRANSCRIPT: No English captions or transcript were found for this video\n",
-    "exitCode": 1
-  },
-  {
-    "scenario": "invalid_url",
+    "scenario": "invalid_source",
     "stdout": "Fetching video info...\n",
-    "stderr": "Invalid YouTube URL: https://example.com/not-youtube\n",
+    "stderr": "Invalid source: not-a-real-source\n",
     "exitCode": 1
   },
   {
