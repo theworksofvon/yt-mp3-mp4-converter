@@ -6,7 +6,7 @@ This document freezes the externally visible behavior at commit `2205e87` for th
 
 > Transcripts come from captions already available on YouTube. This project does not perform speech-to-text on videos without captions.
 
-The implementation requests existing English manual captions and automatically generated captions. If neither contains readable English text, the operation fails. No current CLI, MCP, or HTTP path extracts speech from audio. This captions-only promise remains a contract for the initial Rust release; a future speech-to-text fallback must be an explicit new capability rather than an implied behavior.
+The implementation requests existing English manual captions and automatically generated captions. If neither contains readable English text, the operation fails. No current CLI, MCP, or HTTP path extracts speech from audio. This captions-only promise remains a contract for the initial Rust release; a future speech-to-text fallback must be an explicit new capability rather than an implied behavior. A TypeScript change after this snapshot added that explicit capability; see `STT-01` below for the current behavior.
 
 Migration tests: `TI-ADAPTER-08`, `TI-CLI-04`, `TI-MCP-01`, `TI-GOLDEN-01`.
 
@@ -16,21 +16,22 @@ A TypeScript change after this snapshot added the explicit capability the
 promise anticipated. When a URL has no usable English captions, or the input is
 a local media file, the shared transcript path extracts mono 16 kHz audio with
 FFmpeg and transcribes it locally with whisper.cpp (`whisper-cli`). Missing
-`whisper-cli` or the model maps to a `component_missing` category; a failed or
-empty transcription maps to `transcription_failed`. Caption-first behavior,
-filename handling, and the captions-only YouTube MCP tool are unchanged. The
-Rust rewrite should reproduce this same fallback rather than regressing to
-captions-only.
+`whisper-cli` or the model maps to `WHISPER_NOT_AVAILABLE` (stable
+`component_missing`); a failed or empty transcription maps to
+`TRANSCRIPTION_FAILED` (stable `transcription_failed`). The YouTube MCP tool
+returns captions only. Caption-first behavior and filename handling are
+unchanged. The Rust rewrite should reproduce this same fallback rather than
+regressing to captions-only.
 
-Migration tests: `TI-ADAPTER-12`–`TI-ADAPTER-14`, `TI-GOLDEN-01`.
+Migration tests: `TI-ADAPTER-12`–`TI-ADAPTER-16`, `TI-GOLDEN-01`.
 
 ## Legacy TypeScript CLI
 
 ### Invocation and input (`CLI-01`)
 
-The executable contract is `bun run src/cli.ts <mp3|mp4|transcript> [youtube-url]`, normally reached through `bun run mp3`, `bun run mp4`, or `bun run transcript`. The first positional value is case-sensitive and must be exactly `mp3`, `mp4`, or `transcript`. Missing or unknown formats print the three-line usage/examples block to stdout and exit `1`.
+The executable contract is `bun run src/cli.ts <mp3|mp4|transcript> [url-or-file]`, normally reached through `bun run mp3`, `bun run mp4`, or `bun run transcript`. The first positional value is case-sensitive and must be exactly `mp3`, `mp4`, or `transcript`. Missing or unknown formats print the usage/examples block to stdout and exit `1`.
 
-If the URL positional value is missing or trims to empty, the CLI writes `YouTube URL: ` to stdout and reads console lines until it receives a nonempty trimmed line. It repeats the prompt after empty lines. End-of-input without a URL writes `A YouTube URL is required.` to stderr and exits `1`. Extra arguments and all flag-looking arguments after the URL are ignored.
+If the URL positional value is missing or trims to empty, the CLI writes `Video URL: ` to stdout and reads console lines until it receives a nonempty trimmed line. It repeats the prompt after empty lines. End-of-input without a URL writes `A video URL or file path is required.` to stderr and exits `1`. Extra arguments and all flag-looking arguments after the URL are ignored. For the `transcript` format the positional value may be any http(s) URL or an existing local media file; `mp3` and `mp4` accept YouTube URLs only.
 
 Migration tests: `TI-CLI-01`, `TI-UNIT-01`, `TI-GOLDEN-01`.
 
@@ -54,8 +55,8 @@ Migration tests: `TI-CLI-01`, `TI-CLI-02`, `TI-CLI-03`, `TI-ADAPTER-02`, `TI-UNI
 
 Progress/status text already emitted remains on stdout when a later step fails. The thrown error message is written to stderr, followed by a newline, and every failure exits `1`; the legacy CLI has no stable category-specific exit codes. Representative byte contracts are in `cli-errors.json`:
 
-- invalid URL: one fetch status line on stdout and `Invalid YouTube URL: <input>` on stderr;
-- missing captions: fetch and transcript-download status lines on stdout and the `Failed to convert to TRANSCRIPT: ...` message on stderr;
+- invalid source: one fetch status line on stdout and `Invalid source: <input>` (transcript) or `Invalid YouTube URL: <input>` (mp3/mp4) on stderr;
+- no captions with speech-to-text disabled: fetch and transcript-download status lines on stdout and the `Failed to convert to TRANSCRIPT: ...` message on stderr;
 - downloader failure: fetch status on stdout and a bounded `Download failed: ...` message on stderr. The downloader's retained newline plus `console.error` produces a second newline.
 
 Migration tests: `TI-CLI-04`, `TI-ERROR-03`, `TI-ERROR-04`, `TI-GOLDEN-01`.
@@ -94,11 +95,11 @@ A valid request creates a job and immediately returns `202`:
   "status": "processing",
   "message": "Conversion started",
   "checkUrl": "/api/jobs/<jobId>",
-  "pollTimeoutSeconds": 180
+  "pollTimeoutSeconds": 7260
 }
 ```
 
-The polling deadline is `360` for MP3, `960` for MP4, and `180` for transcript. Downloader work runs after the response. Therefore inaccessible videos, missing captions, and conversion errors still receive an initial `202` and become failed jobs later.
+The polling deadline is `360` for MP3, `960` for MP4, and `7260` for transcript (two hours, sized to a full speech-to-text pass). Downloader work runs after the response. Therefore inaccessible videos, missing captions, and conversion errors still receive an initial `202` and become failed jobs later.
 
 Migration tests: `TI-SCHEMA-01` through `TI-SCHEMA-08`, `TI-API-02`, `TI-API-04`, `TI-API-05`, `TI-GOLDEN-01`.
 
@@ -213,10 +214,12 @@ The Rust core owns the stable lowercase categories from the approved plan. Curre
 | --- | ---: | --- |
 | URL validation; `INVALID_URL` | 400 | `invalid_url` |
 | Private, members-only, deleted, 404, age/region restricted, blocked/copyright; `VIDEO_NOT_ACCESSIBLE` | 400 | `video_unavailable` |
-| No English caption file or no readable caption text; `CONVERSION_FAILED_TRANSCRIPT` | 500 | `captions_unavailable` |
+| No English caption file or no readable caption text (with the STT fallback disabled); `CONVERSION_FAILED_TRANSCRIPT` | 500 | `captions_unavailable` |
 | Downloader rate text; `RATE_LIMITED` | 429 | `rate_limited` |
 | Process timer or timeout stderr; `NETWORK_TIMEOUT` | 504 | `network_timeout` |
 | Generic bounded stderr `DOWNLOAD_FAILED`, invalid metadata `PARSE_ERROR`, or metadata wrapper `VIDEO_INFO_FAILED` | 500 | `downloader_failed` |
+| whisper-cli or FFmpeg missing, or whisper model absent; `WHISPER_NOT_AVAILABLE` | 500 | `component_missing` |
+| whisper-cli or FFmpeg failed or produced no/empty transcript; `TRANSCRIPTION_FAILED` | 500 | `transcription_failed` |
 | Executable absent, currently folded into metadata/conversion wrappers | 500 | `component_missing` |
 | Known unusable component, not distinguished today | 500 | `component_incompatible` |
 | MP3 reported size above limit; `FILE_TOO_LARGE` | 413 | `file_too_large` |
