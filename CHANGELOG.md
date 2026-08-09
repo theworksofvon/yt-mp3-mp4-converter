@@ -5,6 +5,7 @@ All notable changes from Ralph Wiggum Loop sessions.
 ## [Unreleased]
 
 ### Added
+- TypeScript behavior contracts, Rust migration architecture, complete test migration inventory, and deterministic CLI/MCP/HTTP golden parity fixtures
 - **Enhanced input sanitization** (`src/yt-dlp.ts`, `src/schemas.ts`)
   - Comprehensive command injection detection with 30+ pattern checks
   - `sanitizeString()` - removes control characters while preserving newlines/tabs
